@@ -44,12 +44,6 @@ def zip_source_model(ssmLT, archive_zip='', log=logging.info):
     Zip the source model files starting from the smmLT.xml file
     """
     basedir = os.path.dirname(ssmLT)
-    if os.path.basename(ssmLT) != 'ssmLT.xml':
-        orig = ssmLT
-        ssmLT = os.path.join(basedir, 'ssmLT.xml')
-        with open(ssmLT, 'wb') as f:
-            f.write(open(orig, 'rb').read())
-
     archive_zip = archive_zip or os.path.join(basedir, 'ssmLT.zip')
     if os.path.exists(archive_zip):
         sys.exit('%s exists already' % archive_zip)
@@ -61,7 +55,8 @@ def zip_source_model(ssmLT, archive_zip='', log=logging.info):
     files = [os.path.abspath(ssmLT), os.path.abspath(checkfile)]
     for fs in logictree.collect_info(ssmLT).smpaths.values():
         files.extend(fs)
-    general.zipfiles(files, archive_zip, log=log, cleanup=True)
+    general.zipfiles(files, archive_zip, log=log, cleanup=True,
+                     firstname='ssmLT.xml')
     return archive_zip
 
 
@@ -74,7 +69,8 @@ def zip_exposure(exposure_xml, archive_zip='', log=logging.info):
         sys.exit('%s exists already' % archive_zip)
     [exp] = Exposure.read_headers([exposure_xml])
     files = [exposure_xml] + exp.datafiles
-    general.zipfiles(files, archive_zip, log=log, cleanup=True)
+    general.zipfiles(files, archive_zip, log=log, cleanup=True,
+                     firstname='exposure.xml')
     return archive_zip
 
 

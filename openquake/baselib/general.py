@@ -1069,7 +1069,8 @@ def _get_free_port():
     raise RuntimeError('No free ports in the range 1920:2000')
 
 
-def zipfiles(fnames, archive, mode='w', log=lambda msg: None, cleanup=False):
+def zipfiles(fnames, archive, mode='w', log=lambda msg: None, cleanup=False,
+             firstname=None):
     """
     Build a zip archive from the given file names.
 
@@ -1077,11 +1078,15 @@ def zipfiles(fnames, archive, mode='w', log=lambda msg: None, cleanup=False):
     :param archive: path of the archive
     """
     prefix = len(os.path.commonprefix([os.path.dirname(f) for f in fnames]))
+    import pdb; pdb.set_trace()
     with zipfile.ZipFile(
             archive, mode, zipfile.ZIP_DEFLATED, allowZip64=True) as z:
-        for f in fnames:
+        for i, f in enumerate(fnames):
             log('Archiving %s' % f)
-            z.write(f, f[prefix:])
+            if firstname and i == 0:
+                z.write(f, firstname)
+            else:
+                z.write(f, f[prefix:])
             if cleanup:  # remove the zipped file
                 os.remove(f)
     log('Generated %s' % archive)

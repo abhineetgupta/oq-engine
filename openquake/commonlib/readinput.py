@@ -83,7 +83,7 @@ def collect_files(dirpath, cond=lambda fullname: True):
     return files
 
 
-def extract_from_zip(path, candidates):
+def extract_from_zip(path, candidates=()):
     """
     Given a zip archive and a function to detect the presence of a given
     filename, unzip the archive into a temporary directory and return the
@@ -94,10 +94,14 @@ def extract_from_zip(path, candidates):
     :param candidates: list of names to search for
     """
     temp_dir = tempfile.mkdtemp()
+    logging.info('Unzipping %s', path)
     with zipfile.ZipFile(path) as archive:
         archive.extractall(temp_dir)
-    return [f for f in collect_files(temp_dir)
-            if os.path.basename(f) in candidates]
+    if candidates:
+        return [f for f in collect_files(temp_dir)
+                if os.path.basename(f) in candidates]
+    else:
+        return temp_dir
 
 
 def normalize(key, fnames, base_path):
@@ -114,13 +118,11 @@ def normalize(key, fnames, base_path):
             raise ValueError('%s=%s is an absolute path' % (key, val))
         if val.endswith('.zip'):
             zpath = os.path.normpath(os.path.join(base_path, val))
-            with zipfile.ZipFile(zpath) as archive:
-                logging.info('Unzipping %s', zpath)
-                archive.extractall(os.path.dirname(zpath))
+            temp_dir = extract_from_zip(zpath)
             if key == 'exposure_file':
-                val = 'exposure.xml'
+                val = os.path.join(temp_dir, 'exposure.xml')
             elif key == 'source_model_logic_tree_file':
-                val = 'ssmLT.xml'
+                val = os.path.join(temp_dir, 'ssmLT.xml')
             else:
                 raise KeyError('Unknown key %s' % key)
         val = os.path.normpath(os.path.join(base_path, val))

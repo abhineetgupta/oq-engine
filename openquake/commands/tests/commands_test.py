@@ -48,7 +48,8 @@ from openquake.calculators.views import view
 from openquake.qa_tests_data.classical import case_1, case_9, case_18
 from openquake.qa_tests_data.classical_risk import case_3
 from openquake.qa_tests_data.scenario import case_4
-from openquake.qa_tests_data.event_based import case_2, case_5, case_16, case_21
+from openquake.qa_tests_data.event_based import (
+    case_2, case_5, case_16, case_21)
 from openquake.qa_tests_data.event_based_risk import (
     case_master, case_1 as case_exposure)
 from openquake.qa_tests_data.gmf_ebrisk import case_1 as ebrisk
@@ -356,6 +357,7 @@ class ZipTestCase(unittest.TestCase):
         xzip = os.path.join(dtemp, 'x.zip')
         zip_cmd(ini, xzip, None)
         names = sorted(zipfile.ZipFile(xzip).namelist())
+        import pdb; pdb.set_trace()
         self.assertEqual(
             ['exposure.csv', 'exposure.xml', 'gmpe_logic_tree.xml',
              'job.ini', 'source_model.xml', 'source_model_logic_tree.xml',
