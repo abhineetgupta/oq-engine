@@ -37,7 +37,8 @@ from collections import namedtuple
 import toml
 import numpy
 from openquake.baselib import hdf5, node, python3compat
-from openquake.baselib.general import groupby, group_array, duplicated
+from openquake.baselib.general import (groupby, group_array, duplicated,
+                                       add_defaults)
 import openquake.hazardlib.source as ohs
 from openquake.hazardlib.gsim.base import CoeffsTable
 from openquake.hazardlib.gsim.gmpe_table import GMPETable
@@ -547,7 +548,7 @@ def collect_info(smlt):
     for blevel in blevels:
         for bset in _bsnodes(smlt, blevel):
             if 'applyToSources' in bset.attrib:
-                applytosources[bset['branchSetID']].extend(
+                applytosources[bset.get('applyToBranches')].extend(
                         bset['applyToSources'].split())
             for br in bset:
                 with node.context(smlt, br):
@@ -1478,10 +1479,12 @@ class GsimLogicTree(object):
             gsim = valid.gsim(gsim_)
             self.values[branch['trt']].append(gsim)
             if isinstance(gsim, GMPETable):
-                if 'gmpe_table' in gsim.kwargs:
-                    gsim.init(dic[gsim.kwargs['gmpe_table']])
-                else:
+                try:
+                    name = gsim.kwargs['gmpe_table']
+                except KeyError:
                     gsim.init()
+                else:
+                    gsim.init(dic[name])
             weight = object.__new__(ImtWeight)
             # branch has dtype ('trt', 'branch', 'uncertainty', 'weight', ...)
             weight.dic = {w: branch[w] for w in branch.dtype.names[3:]}
@@ -1634,7 +1637,7 @@ class GsimLogicTree(object):
             yield Realization(tuple(value), weight, tuple(lt_path),
                               i, tuple(lt_uid))
 
-    # tested in scenario/case_11
+    # tested in scenario/case_11; works only without a site model
     def get_integration_distance(self, mags_by_trt, oq):
         """
         :param mags_by_trt:
@@ -1677,7 +1680,8 @@ def taxonomy_mapping(filename, taxonomies):
     if filename is None:  # trivial mapping
         return (), [[(taxo, 1)] for taxo in taxonomies]
     dic = {}  # taxonomy index -> risk taxonomy
-    arr = hdf5.read_csv(filename, {None: hdf5.vstr, 'weight': float}).array
+    array = hdf5.read_csv(filename, {None: hdf5.vstr, 'weight': float}).array
+    arr = add_defaults(array, weight=1.)
     assert arr.dtype.names == ('taxonomy', 'conversion', 'weight')
     dic = group_array(arr, 'taxonomy')
     taxonomies = taxonomies[1:]  # strip '?'
