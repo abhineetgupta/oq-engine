@@ -3,6 +3,6 @@ services:
   openquake:
     build: .
     image: gcr.io/onec-co/oq:latest
-    command: /openquake/bin/start.sh
+    command: /openquake/start.sh
     ports:
      - "8800:8800"
