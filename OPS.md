@@ -31,7 +31,7 @@ Checking on the deployed container
 `kubectl get pod -n dev|grep oq`
 
 Getting details on the deployed container
-`kubectl describe <pod instance> -n dev` # where pod instance is from the output from the prior command
+`kubectl describe pod <pod instance> -n dev` # where pod instance is from the output from the prior command
 
 Attaching to the openquake container
 `kubectl exec -it <pod instance> bash` # this is the equivalent of sshing to a server

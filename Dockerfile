@@ -15,4 +15,4 @@ ENV HOME /home/openquake
 WORKDIR ${HOME}
 
 EXPOSE 8800:8800
-CMD ["/openquake/bin/start.sh"]
+CMD ["/openquake/start.sh"]
