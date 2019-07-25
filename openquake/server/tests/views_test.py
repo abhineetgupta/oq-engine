@@ -41,6 +41,10 @@ from openquake.server.dbserver import db, get_status
 from openquake.commands import engine
 
 
+class TimeoutError(RuntimeError):
+    pass
+
+
 def loadnpz(lines):
     bio = io.BytesIO(b''.join(ln for ln in lines))
     return numpy.load(bio, allow_pickle=True)
@@ -81,11 +85,12 @@ class EngineServerTestCase(unittest.TestCase):
     @classmethod
     def wait(cls):
         # wait until all calculations stop
-        while True:
+        for i in range(40):  # 20 seconds of timeout
+            time.sleep(0.5)
             running_calcs = cls.get('list', is_running='true')
             if not running_calcs:
-                break
-            time.sleep(0.5)
+                return
+        raise TimeoutError(running_calcs)
 
     def postzip(self, archive):
         with open(os.path.join(self.datadir, archive), 'rb') as a:
