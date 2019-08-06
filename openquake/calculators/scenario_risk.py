@@ -63,7 +63,6 @@ def scenario_risk(riskinputs, crmodel, param, monitor):
     for ri in riskinputs:
         for out in ri.gen_outputs(crmodel, monitor, param['epspath']):
             r = out.rlzi
-            weight = param['weights'][r]
             slc = param['event_slice'](r)
             for l, loss_type in enumerate(crmodel.loss_types):
                 losses = out[loss_type]
@@ -75,7 +74,7 @@ def scenario_risk(riskinputs, crmodel, param, monitor):
                     stats['stddev'][a] = losses[a].std(ddof=1)
                     result['avg'].append((l, r, asset['ordinal'], stats[a]))
                 agglosses = losses.sum(axis=0)  # shape num_gmfs
-                result['agg'][slc, l] += agglosses * weight
+                result['agg'][slc, l] += agglosses
                 if param['asset_loss_table']:
                     aids = ri.assets['ordinal']
                     result['all_losses'][l, r] += AccumDict(zip(aids, losses))
@@ -121,8 +120,8 @@ class ScenarioRiskCalculator(base.RiskCalculator):
         the results on the datastore.
         """
         loss_dt = self.oqparam.loss_dt()
-        LI = len(loss_dt.names)
-        dtlist = [('event_id', U64), ('loss', (F32, LI))]
+        L = len(loss_dt.names)
+        dtlist = [('event_id', U64), ('rlzi', U16), ('loss', (F32, (L,)))]
         R = self.R
         with self.monitor('saving outputs', autoflush=True):
             A = len(self.assetcol)
@@ -144,7 +143,11 @@ class ScenarioRiskCalculator(base.RiskCalculator):
             self.datastore['agglosses'] = agglosses
 
             # losses by event
-            lbe = numpy.fromiter(((ei, res[ei]) for ei in range(E)), dtlist)
+            lbe = numpy.zeros(E, dtlist)
+            lbe['event_id'] = range(E)
+            lbe['rlzi'] = (lbe['event_id'] //
+                           self.oqparam.number_of_ground_motion_fields)
+            lbe['loss'] = res
             self.datastore['losses_by_event'] = lbe
             loss_types = ' '.join(self.oqparam.loss_dt().names)
             self.datastore.set_attrs('losses_by_event', loss_types=loss_types)

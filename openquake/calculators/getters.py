@@ -153,6 +153,28 @@ class PmapGetter(object):
                     pcurves[rlzi] |= c
         return pcurves
 
+    def get_pcurve(self, s, r, g):  # used in disaggregation
+        """
+        :param s: site ID
+        :param r: realization ID
+        :param g: group ID
+        :returns: a probability curves with shape L (or None, if missing)
+        """
+        grp = 'grp-%02d' % g
+        pmap = self.init()[grp]
+        try:
+            pc = pmap[s]
+        except KeyError:
+            return
+        L = len(self.imtls.array)
+        pcurve = probability_map.ProbabilityCurve(numpy.zeros((L, 1)))
+        for gsim_idx, rlzis in enumerate(self.rlzs_by_grp[grp]):
+            for rlzi in rlzis:
+                if rlzi == r:
+                    pcurve |= probability_map.ProbabilityCurve(
+                        pc.array[:, [gsim_idx]])
+        return pcurve
+
     def items(self, kind=''):
         """
         Extract probability maps from the datastore, possibly generating
@@ -274,12 +296,13 @@ class GmfGetter(object):
         self.sig_eps_dt = sig_eps_dt(oqparam.imtls)
         M32 = (F32, len(oqparam.imtls))
         self.gmv_eid_dt = numpy.dtype([('gmv', M32), ('eid', U64)])
+        md = (calc.filters.IntegrationDistance(oqparam.maximum_distance)
+              if isinstance(oqparam.maximum_distance, dict)
+              else oqparam.maximum_distance)
+        param = {'filter_distance': oqparam.filter_distance,
+                 'imtls': oqparam.imtls, 'maximum_distance': md}
         self.cmaker = ContextMaker(
-            rupgetter.trt, rupgetter.rlzs_by_gsim,
-            calc.filters.IntegrationDistance(oqparam.maximum_distance)
-            if isinstance(oqparam.maximum_distance, dict)
-            else oqparam.maximum_distance,
-            {'filter_distance': oqparam.filter_distance})
+            rupgetter.trt, rupgetter.rlzs_by_gsim, param)
         self.correl_model = oqparam.correl_model
 
     @property

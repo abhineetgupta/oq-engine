@@ -131,8 +131,6 @@ def expose_outputs(dstore, owner=getpass.getuser(), status='complete'):
     rlzs = dstore['csm_info'].rlzs
     if len(rlzs) > 1:
         dskeys.add('realizations')
-    if len(dstore['csm_info/sg_data']) > 1:  # export sourcegroups.csv
-        dskeys.add('sourcegroups')
     hdf5 = dstore.hdf5
     if 'hcurves-stats' in hdf5 or 'hcurves-rlzs' in hdf5:
         if oq.hazard_stats() or oq.individual_curves or len(rlzs) == 1:
@@ -301,10 +299,6 @@ def run_calc(job_id, oqparam, exports, hazard_calculation_id=None, **kw):
     :param exports:
         A comma-separated string of export types.
     """
-    if OQ_DISTRIBUTE == 'zmq':  # start zworkers
-        master = w.WorkerMaster(config.dbserver.listen, **config.zworkers)
-        logs.dbcmd('start_zworkers', master)
-        logging.info('WorkerPool %s', master.status())
     register_signals()
     setproctitle('oq-job-%d' % job_id)
     calc = base.calculators(oqparam, calc_id=job_id)
@@ -316,8 +310,6 @@ def run_calc(job_id, oqparam, exports, hazard_calculation_id=None, **kw):
     msg = check_obsolete_version(oqparam.calculation_mode)
     if msg:
         logs.LOG.warn(msg)
-    if OQ_DISTRIBUTE.startswith(('celery', 'zmq')):
-        set_concurrent_tasks_default(job_id)
     calc.from_engine = True
     tb = 'None\n'
     try:
@@ -337,6 +329,12 @@ def run_calc(job_id, oqparam, exports, hazard_calculation_id=None, **kw):
             del data  # save memory
 
         poll_queue(job_id, _PID, poll_time=15)
+        if OQ_DISTRIBUTE == 'zmq':  # start zworkers
+            master = w.WorkerMaster(config.dbserver.listen, **config.zworkers)
+            logs.dbcmd('start_zworkers', master)
+            logging.info('WorkerPool %s',  master.wait_pools(seconds=30))
+        if OQ_DISTRIBUTE.startswith(('celery', 'zmq')):
+            set_concurrent_tasks_default(job_id)
         t0 = time.time()
         calc.run(exports=exports,
                  hazard_calculation_id=hazard_calculation_id,

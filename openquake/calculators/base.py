@@ -406,10 +406,6 @@ class HazardCalculator(BaseCalculator):
                          'ruptures')
             if res:
                 logging.info(res)
-            # sanity check: the stored MFDs can be read again
-            # uncomment this when adding a new MFD class to test it
-            # for s in self.datastore['source_mfds']:
-            #     mfd.from_toml(s, oq.width_of_mfd_bin)
         self.init()  # do this at the end of pre-execute
 
     def save_multi_peril(self):
@@ -772,11 +768,12 @@ class HazardCalculator(BaseCalculator):
         """
         if calc_times:
             source_info = self.datastore['source_info']
-            arr = numpy.zeros((len(source_info), 2), F32)
+            arr = numpy.zeros((len(source_info), 3), F32)
             ids, vals = zip(*sorted(calc_times.items()))
             arr[numpy.array(ids)] = vals
-            source_info['weight'] += arr[:, 0]
-            source_info['calc_time'] += arr[:, 1]
+            source_info['eff_ruptures'] += arr[:, 0]
+            source_info['num_sites'] += arr[:, 1]
+            source_info['calc_time'] += arr[:, 2]
 
     def post_process(self):
         """For compatibility with the engine"""

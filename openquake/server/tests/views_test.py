@@ -35,14 +35,11 @@ import random
 from django.test import Client
 from openquake.baselib.general import gettemp
 from openquake.commonlib.logs import dbcmd
+from openquake.baselib.workerpool import TimeoutError
 from openquake.engine.export import core
 from openquake.server.db import actions
 from openquake.server.dbserver import db, get_status
 from openquake.commands import engine
-
-
-class TimeoutError(RuntimeError):
-    pass
 
 
 def loadnpz(lines):
@@ -210,7 +207,7 @@ class EngineServerTestCase(unittest.TestCase):
         self.wait()
 
         # check that we get at least the following 6 outputs
-        # fullreport, input, hcurves, hmaps, realizations, sourcegroups
+        # fullreport, input, hcurves, hmaps, realizations, events
         # we can add more outputs in the future
         results = self.get('%s/results' % job_id)
         self.assertGreaterEqual(len(results), 5)
@@ -253,8 +250,8 @@ class EngineServerTestCase(unittest.TestCase):
             sys.stderr.write('Empty traceback, please check!\n')
 
         self.post('%s/remove' % job_id)
-        # make sure job_id is no more in the list of relevant jobs
-        job_ids = [job['id'] for job in self.get('list', relevant=True)]
+        # make sure job_id is no more in the list of jobs
+        job_ids = [job['id'] for job in self.get('list')]
         self.assertFalse(job_id in job_ids)
 
     def test_err_2(self):

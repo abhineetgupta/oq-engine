@@ -121,12 +121,12 @@ class ScenarioDamageCalculator(base.RiskCalculator):
 
         # consequence distributions
         if result['c_asset']:
-            dtlist = [('event_id', U64), ('rlzi', U16), ('loss', (F32, L))]
+            dtlist = [('event_id', U64), ('rlzi', U16), ('loss', (F32, (L,)))]
             stat_dt = numpy.dtype([('mean', F32), ('stddev', F32)])
             c_asset = numpy.zeros((N, R, L), stat_dt)
             for (l, r, a, stat) in result['c_asset']:
                 c_asset[a, r, l] = stat
             self.datastore['losses_by_asset'] = c_asset
             self.datastore['losses_by_event'] = numpy.fromiter(
-                ((eid, rlzi, F32(result['c_event'][eid, rlzi]))
+                ((eid + rlzi * F, rlzi, F32(result['c_event'][eid, rlzi]))
                  for rlzi in range(R) for eid in range(F)), dtlist)

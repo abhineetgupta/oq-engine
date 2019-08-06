@@ -116,6 +116,16 @@ class EventBasedRiskTestCase(CalculatorTestCase):
         [fname] = export(('avg_losses', 'csv'), self.calc.datastore)
         self.assertEqualFiles('expected/%s' % strip_calc_id(fname), fname)
 
+        fnames = export(('agg_curves-stats', 'csv'), self.calc.datastore)
+        for fname in fnames:
+            self.assertEqualFiles('expected/eb_%s' % strip_calc_id(fname),
+                                  fname)
+
+        fnames = export(('agg_losses-stats', 'csv'), self.calc.datastore)
+        for fname in fnames:
+            self.assertEqualFiles('expected/%s' % strip_calc_id(fname), fname,
+                                  delta=1E-5)
+
         [fname] = export(('losses_by_event', 'csv'), self.calc.datastore)
         self.assertEqualFiles('expected/%s' % strip_calc_id(fname), fname)
 
@@ -123,7 +133,7 @@ class EventBasedRiskTestCase(CalculatorTestCase):
         # vulnerability function with BT
         self.run_calc(case_1f.__file__, 'job_h.ini,job_r.ini')
         fname = gettemp(view('portfolio_losses', self.calc.datastore))
-        self.assertEqualFiles('portfolio_losses.txt', fname, delta=1E-5)
+        self.assertEqualFiles('portfolio_losses.txt', fname, delta=1E-6)
         os.remove(fname)
 
     def test_case_1g(self):
