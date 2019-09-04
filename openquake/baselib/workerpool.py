@@ -12,6 +12,10 @@ except ImportError:
         "Do nothing"
 
 
+class TimeoutError(RuntimeError):
+    pass
+
+
 def _streamer(host):
     # streamer for zmq workers
     port = int(config.zworkers.ctrl_port)
@@ -59,6 +63,19 @@ class WorkerMaster(object):
             master_host, self.ctrl_port + 1)
         self.pids = []
 
+    def wait_pools(self, seconds):
+        """
+        Wait until all workerpools start
+        """
+        for _ in range(seconds):
+            time.sleep(1)
+            status = self.status()
+            if all(st == 'running' for host, st in status):
+                break
+        else:
+            raise TimeoutError(status)
+        return status
+
     def status(self, host=None):
         """
         :returns: a list of pairs (hostname, 'running'|'not-running')
@@ -93,7 +110,6 @@ class WorkerMaster(object):
             starting.append(' '.join(args))
             po = subprocess.Popen(args)
             self.pids.append(po.pid)
-        time.sleep(1)  # wait a bit, useful in travis
         return 'starting %s' % starting
 
     def stop(self):

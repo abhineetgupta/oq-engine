@@ -19,7 +19,6 @@
 import os.path
 import logging
 import collections
-import itertools
 import operator
 import numpy
 
@@ -132,7 +131,7 @@ class EventBasedCalculator(base.HazardCalculator):
         smap = parallel.Starmap(
             self.build_ruptures.__func__, hdf5path=self.datastore.filename)
         eff_ruptures = AccumDict(accum=0)  # grp_id => potential ruptures
-        calc_times = AccumDict(accum=numpy.zeros(2, F32))
+        calc_times = AccumDict(accum=numpy.zeros(3, F32))  # nr, ns, dt
         ses_idx = 0
         for sm_id, sm in enumerate(self.csm.source_models):
             logging.info('Sending %s', sm)
@@ -264,6 +263,8 @@ class EventBasedCalculator(base.HazardCalculator):
 
         # build the associations eid -> rlz sequentially or in parallel
         # this is very fast: I saw 30 million events associated in 1 minute!
+        logging.info('Building associations event_id -> rlz_id for %d events',
+                     len(events))
         if len(events) < 1E5:
             it = map(RuptureGetter.get_eid_rlz, rgetters)
         else:
@@ -282,8 +283,6 @@ class EventBasedCalculator(base.HazardCalculator):
         n_unique_events = len(numpy.unique(events['id']))
         assert n_unique_events == len(events), (n_unique_events, len(events))
         self.datastore['events'] = events
-        logging.info('Stored %d ruptures and %d events', len(rup_array),
-                     len(events))
 
     def check_overflow(self):
         """

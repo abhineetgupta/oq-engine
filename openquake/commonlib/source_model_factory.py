@@ -41,7 +41,7 @@ source_info_dt = numpy.dtype([
     ('num_ruptures', numpy.uint32),    # 6
     ('calc_time', numpy.float32),      # 7
     ('num_sites', numpy.float32),      # 8
-    ('weight', numpy.float32),         # 9
+    ('eff_ruptures', numpy.float32),   # 9
     ('checksum', numpy.uint32),        # 10
 ])
 
@@ -309,13 +309,9 @@ class SourceModelFactory(object):
             else:
                 self.apply_uncertainties(sm, idx, dic)
             yield sm
-        if self.mags and self.hdf5 and 'site_model' not in oq.inputs:
-            mags_by_trt = {trt: sorted(ms) for trt, ms in self.mags.items()}
-            idist = self.gsim_lt.get_integration_distance(mags_by_trt, oq)
-            self.hdf5['integration_distance'] = idist
-            self.hdf5.set_nbytes('integration_distance')
-            hdf5.extend(self.hdf5['source_mfds'],
-                        numpy.array(list(self.mfds), hdf5.vstr))
+            if self.hdf5:
+                hdf5.extend(self.hdf5['source_mfds'],
+                            numpy.array(list(self.mfds), hdf5.vstr))
 
         # log if some source file is being used more than once
         dupl = 0
