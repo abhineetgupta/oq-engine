@@ -15,6 +15,13 @@ spec:
       containers:
         - name: oq-engine
           image: gcr.io/onec-co/oq:latest
+          resources:
+            requests:
+              memory: "40Gi"
+              cpu: "8"
+            limits:
+              memory: "40Gi"
+              cpu: "8"
           volumeMounts:
             - mountPath: /mnt/shared
               name: shared-vol

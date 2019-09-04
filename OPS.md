@@ -34,10 +34,10 @@ Getting details on the deployed container
 `kubectl describe pod <pod instance> -n dev` # where pod instance is from the output from the prior command
 
 Attaching to the openquake container
-`kubectl exec -it <pod instance> bash` # this is the equivalent of sshing to a server
+`kubectl exec -it -n dev <pod instance> bash` # this is the equivalent of sshing to a server
 
 Accessing the remote openquake web UI via a port-forward
-`kubectl port-forward pod/<pod instance> 8888:8800` # then you attach to it via a browser and URL localhost:8888
+`kubectl port-forward -n dev pod/<pod instance> 8888:8800` # then you attach to it via a browser and URL localhost:8888
 
 Deleting the deployment in the dev cluster
 `kubectl delete -f k8s/oq.yaml`
