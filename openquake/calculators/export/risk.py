@@ -37,7 +37,6 @@ F32 = numpy.float32
 F64 = numpy.float64
 U16 = numpy.uint16
 U32 = numpy.uint32
-U64 = numpy.uint64
 TWO32 = 2 ** 32
 stat_dt = numpy.dtype([('mean', F32), ('stddev', F32)])
 
@@ -46,7 +45,7 @@ def get_rup_data(ebruptures):
     dic = {}
     for ebr in ebruptures:
         point = ebr.rupture.surface.get_middle_point()
-        dic[ebr.serial] = (ebr.rupture.mag, point.x, point.y, point.z)
+        dic[ebr.rup_id] = (ebr.rupture.mag, point.x, point.y, point.z)
     return dic
 
 # ############################### exporters ############################## #
@@ -138,12 +137,15 @@ def export_avg_losses(ekey, dstore):
     name, value, tags = _get_data(dstore, dskey, oq.hazard_stats().items())
     writer = writers.CsvWriter(fmt=writers.FIVEDIGITS)
     assets = get_assets(dstore)
+    md = dstore.metadata
+    md.update(dict(investigation_time=oq.investigation_time,
+                   risk_investigation_time=oq.risk_investigation_time))
     for tag, values in zip(tags, value.transpose(1, 0, 2)):
         dest = dstore.build_fname(name, tag, 'csv')
         array = numpy.zeros(len(values), dt)
         for l, lt in enumerate(dt.names):
             array[lt] = values[:, l]
-        writer.save(compose_arrays(assets, array), dest)
+        writer.save(compose_arrays(assets, array), dest, comment=md)
     return writer.getsaved()
 
 
@@ -164,6 +166,9 @@ def export_agg_losses(ekey, dstore):
     tagnames = tuple(dstore['oqparam'].aggregate_by)
     header = ('loss_type',) + tagnames + (
         'loss_value', 'exposed_value', 'loss_ratio')
+    md = dstore.metadata
+    md.update(dict(investigation_time=oq.investigation_time,
+              risk_investigation_time=oq.risk_investigation_time))
     for r, tag in enumerate(tags):
         rows = []
         for multi_idx, loss in numpy.ndenumerate(value[:, r]):
@@ -173,7 +178,7 @@ def export_agg_losses(ekey, dstore):
                 loss, evalue, loss / evalue)
             rows.append((oq.loss_names[l],) + row)
         dest = dstore.build_fname(name, tag, 'csv')
-        writer.save(rows, dest, header)
+        writer.save(rows, dest, header, comment=md)
     return writer.getsaved()
 
 
@@ -191,9 +196,12 @@ def export_avg_losses_ebrisk(ekey, dstore):
     assets = get_assets(dstore)
     dest = dstore.build_fname(name, 'mean', 'csv')
     array = numpy.zeros(len(assets), dt)
+    md = dstore.metadata
+    md.update(dict(investigation_time=oq.investigation_time,
+                   risk_investigation_time=oq.risk_investigation_time))
     for li, ln in enumerate(oq.loss_names):
         array[ln] = dstore[name][:, li]
-    writer.save(compose_arrays(assets, array), dest)
+    writer.save(compose_arrays(assets, array), dest, comment=md)
     return writer.getsaved()
 
 
@@ -204,22 +212,26 @@ def export_losses_by_asset(ekey, dstore):
     :param ekey: export key, i.e. a pair (datastore key, fmt)
     :param dstore: datastore object
     """
-    loss_dt = dstore['oqparam'].loss_dt(stat_dt)
+    oq = dstore['oqparam']
+    loss_dt = oq.loss_dt(stat_dt)
     losses_by_asset = dstore[ekey[0]][()]
     rlzs = dstore['csm_info'].get_rlzs_assoc().realizations
     assets = get_assets(dstore)
     writer = writers.CsvWriter(fmt=writers.FIVEDIGITS)
+    md = dstore.metadata
+    md.update(dict(investigation_time=oq.investigation_time,
+                   risk_investigation_time=oq.risk_investigation_time))
     for rlz in rlzs:
         losses = losses_by_asset[:, rlz.ordinal]
         dest = dstore.build_fname('losses_by_asset', rlz, 'csv')
         data = compose_arrays(assets, losses.copy().view(loss_dt)[:, 0])
-        writer.save(data, dest)
+        writer.save(data, dest, comment=md)
     return writer.getsaved()
 
 
 def get_rlz_ids(events, eids):
     d = {e: i for i, e in enumerate(events['id'])}
-    return events['rlz'][[d[e] for e in eids]]
+    return events['rlz_id'][[d[e] for e in eids]]
 
 
 # this is used by scenario_risk, event_based_risk and ebrisk
@@ -232,6 +244,9 @@ def export_losses_by_event(ekey, dstore):
     oq = dstore['oqparam']
     writer = writers.CsvWriter(fmt=writers.FIVEDIGITS)
     dest = dstore.build_fname('losses_by_event', '', 'csv')
+    md = dstore.metadata
+    md.update(dict(investigation_time=oq.investigation_time,
+                   risk_investigation_time=oq.risk_investigation_time))
     if (oq.calculation_mode.startswith('scenario') or
             oq.calculation_mode == 'ebrisk'):
         tagcol = dstore['assetcol/tagcol']
@@ -245,22 +260,22 @@ def export_losses_by_event(ekey, dstore):
         axis = [0] + list(range(2, len(lbe['loss'].shape))) + [1]
         data = lbe['loss'].transpose(axis)  # shape (E, T..., L)
         aw = hdf5.ArrayWrapper(data, dic, oq.loss_names)
-        writer.save(aw.to_table(), dest)
+        writer.save(aw.to_table(), dest, comment=md)
     else:
-        dtlist = [('event_id', U64), ('rlz_id', U16), ('rup_id', U32),
+        dtlist = [('event_id', U32), ('rlz_id', U16), ('rup_id', U32),
                   ('year', U32)] + oq.loss_dt_list()
         eids = dstore['losses_by_event']['event_id']
         events = dstore['events']
         year_of = year_dict(events['id'], oq.investigation_time, oq.ses_seed)
         arr = numpy.zeros(len(dstore['losses_by_event']), dtlist)
         arr['event_id'] = eids
-        arr['rup_id'] = arr['event_id'] / TWO32
+        arr['rup_id'] = events['rup_id'][eids]
         arr['rlz_id'] = get_rlz_ids(events, eids)
         arr['year'] = [year_of[eid] for eid in eids]
         loss = dstore['losses_by_event']['loss'].T  # shape (L, E)
         for losses, loss_type in zip(loss, oq.loss_names):
             arr[loss_type] = losses
-        writer.save(arr, dest)
+        writer.save(arr, dest, comment=md)
     return writer.getsaved()
 
 
@@ -414,7 +429,7 @@ def export_dmg_by_event(ekey, dstore):
     dt_list = [('event_id', numpy.uint64), ('rlzi', numpy.uint16)] + [
         (f, damage_dt.fields[f][0]) for f in damage_dt.names]
     all_losses = dstore[ekey[0]][()]  # shape (E, R, LI)
-    events_by_rlz = group_array(dstore['events'], 'rlz')
+    events_by_rlz = group_array(dstore['events'], 'rlz_id')
     rlzs = dstore['csm_info'].get_rlzs_assoc().realizations
     writer = writers.CsvWriter(fmt=writers.FIVEDIGITS)
     fname = dstore.build_fname('dmg_by_event', '', 'csv')

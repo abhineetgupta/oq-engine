@@ -263,7 +263,6 @@ DISPLAY_NAME = {
     'events': 'Events',
     'damages-rlzs': 'Asset Damage Distribution',
     'damages-stats': 'Asset Damage Statistics',
-    'dmg_by_event': 'Aggregate Event Damages',
     'avg_losses': 'Average Asset Losses',
     'avg_losses-rlzs': 'Average Asset Losses',
     'avg_losses-stats': 'Average Asset Losses Statistics',
@@ -794,17 +793,3 @@ def get_job_from_checksum(db, checksum):
     if not jobs:
         return
     return jobs[0]
-
-
-def start_zworkers(db, master):
-    """
-    Start the zmq workers
-    """
-    master.start()
-
-
-def stop_zworkers(db, master):
-    """
-    Stop the zmq workers
-    """
-    master.stop()

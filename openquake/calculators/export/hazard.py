@@ -30,14 +30,13 @@ from openquake.calculators.views import view
 from openquake.calculators.extract import extract, get_mesh, get_info
 from openquake.calculators.export import export
 from openquake.calculators.getters import gen_rupture_getters
-from openquake.commonlib import writers, hazard_writers, calc, util, source
+from openquake.commonlib import writers, hazard_writers, calc, util
 
 F32 = numpy.float32
 F64 = numpy.float64
 U8 = numpy.uint8
 U16 = numpy.uint16
 U32 = numpy.uint32
-U64 = numpy.uint64
 TWO32 = 2 ** 32
 
 GMF_MAX_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -91,13 +90,13 @@ def export_ruptures_csv(ekey, dstore):
     for rgetter in gen_rupture_getters(dstore):
         rups = rgetter.get_ruptures()
         rup_data = calc.RuptureData(rgetter.trt, rgetter.rlzs_by_gsim)
-        for r in rup_data.to_array(rups):
+        for r, rup in zip(rup_data.to_array(rups), rups):
             rows.append(
                 (r['rup_id'], r['multiplicity'], r['mag'],
                  r['lon'], r['lat'], r['depth'],
                  rgetter.trt, r['strike'], r['dip'], r['rake'],
                  r['boundary']))
-    rows.sort()  # by rupture serial
+    rows.sort()  # by rupture rup_id
     comment = dstore.metadata
     comment.update(investigation_time=oq.investigation_time,
                    ses_per_logic_tree_path=oq.ses_per_logic_tree_path)
@@ -396,9 +395,6 @@ def export_hazard_npz(ekey, dstore):
     return [fname]
 
 
-Event = collections.namedtuple('Event', ['eid', 'ses_idx', 'indices', 'gmfa'])
-
-
 @export.add(('gmf_data', 'csv'))
 def export_gmf_data_csv(ekey, dstore):
     oq = dstore['oqparam']
@@ -597,12 +593,7 @@ def export_realizations(ekey, dstore):
 
 @export.add(('events', 'csv'))
 def export_events(ekey, dstore):
-    ev = dstore['events'][()]
-    events = numpy.zeros(
-        len(ev), [('event_id', U64), ('rup_id', U32), ('rlz_id', U16)])
-    events['event_id'] = ev['id']
-    events['rup_id'] = ev['id'] // TWO32
-    events['rlz_id'] = ev['rlz']
+    events = dstore['events'][()]
     path = dstore.export_path('events.csv')
     writers.write_csv(path, events, fmt='%s')
     return [path]

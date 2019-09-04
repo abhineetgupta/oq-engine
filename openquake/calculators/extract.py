@@ -529,6 +529,9 @@ def extract_agg_losses(dstore, what):
     if 'losses_by_asset' in dstore:  # scenario_risk
         stats = None
         losses = dstore['losses_by_asset'][:, :, L]['mean']
+    elif 'avg_losses' in dstore:  # ebrisk
+        stats = [b'mean']
+        losses = dstore['avg_losses'][:, L].reshape(-1, 1)
     elif 'avg_losses-stats' in dstore:  # event_based_risk, classical_risk
         stats = dstore['avg_losses-stats'].attrs['stats']
         losses = dstore['avg_losses-stats'][:, :, L]
@@ -643,7 +646,7 @@ def extract_gmf_scenario_npz(dstore, what):
     mesh = get_mesh(dstore['sitecol'])
     n = len(mesh)
     data = dstore['gmf_data/data'][()]
-    rlz = dstore['events']['rlz']
+    rlz = dstore['events']['rlz_id']
     for rlzi in sorted(set(rlz)):
         idx = rlz[data['eid']] == rlzi
         gmfa = _gmf_scenario(data[idx], n, oq.imtls)
@@ -748,7 +751,7 @@ def extract_mfd(dstore, what):
 #     rlzs = dstore['csm_info'].get_rlzs_assoc().realizations
 #     weights = [rlz.weight['default'] for rlz in rlzs]
 #     duration = oq.investigation_time * oq.ses_per_logic_tree_path
-#     mag = dict(dstore['ruptures']['serial', 'mag'])
+#     mag = dict(dstore['ruptures']['rup_id', 'mag'])
 #     mags = numpy.unique(dstore['ruptures']['mag'])
 #     mags.sort()
 #     magidx = {mag: idx for idx, mag in enumerate(mags)}
@@ -821,13 +824,13 @@ def _get(dstore, name):
 
 
 @extract.add('rupture')
-def extract_rupture(dstore, serial):
+def extract_rupture(dstore, rup_id):
     """
     Extract information about the given event index.
     Example:
     http://127.0.0.1:8800/v1/calc/30/extract/rupture/1066
     """
-    ridx = list(dstore['ruptures']['serial']).index(int(serial))
+    ridx = list(dstore['ruptures']['rup_id']).index(int(rup_id))
     [getter] = getters.gen_rupture_getters(dstore, slice(ridx, ridx + 1))
     yield from getter.get_rupdict().items()
 
@@ -840,11 +843,11 @@ def extract_event_info(dstore, eidx):
     http://127.0.0.1:8800/v1/calc/30/extract/event_info/0
     """
     event = dstore['events'][int(eidx)]
-    serial = int(event['id'] // TWO32)
-    ridx = list(dstore['ruptures']['serial']).index(serial)
+    rup_id = event['rup_id']
+    ridx = list(dstore['ruptures']['rup_id']).index(rup_id)
     [getter] = getters.gen_rupture_getters(dstore, slice(ridx, ridx + 1))
     rupdict = getter.get_rupdict()
-    rlzi = event['rlz']
+    rlzi = event['rlz_id']
     rlzs_assoc = dstore['csm_info'].get_rlzs_assoc()
     gsim = rlzs_assoc.gsim_by_trt[rlzi][rupdict['trt']]
     for key, val in rupdict.items():

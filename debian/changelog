@@ -1,4 +1,38 @@
   [Michele Simionato]
+  * Replaced the 64 bit event IDs in event based and scenario calculations
+    with 32 bit integers, for the happiness of Excel users
+
+  [Daniele Viganò]
+  * Numpy 1.16, Scipy 1.3 and h5py 2.9 are now required
+
+  [Michele Simionato]
+  * Changed the ebrisk calculator to read the CompositeRiskModel directly
+    from the datastore, which means 20x less data transfer for Canada
+
+  [Anirudh Rao]
+  * Fixed a bug in the gmf CSV importer: the coordinates were being
+    sorted and new site_ids assigned even though the user input sites
+    csv file had site_ids defined
+
+  [Michele Simionato]
+  * Fixed a bug in the rupture CSV exporter: the boundaries of a GriddedRupture
+    were exported with lons and lats inverted
+  * Added some metadata to the CSV risk outputs
+  * Changed the distribution mechanism in ebrisk to reduce the slow tasks
+
+  [Graeme Weatherill]
+  * Updates Kotha et al. (2019) GMPE to July 2019 coefficients
+  * Adds subclasses to Kotha et al. (2019) to implement polynomial site
+    response models and geology+slope site response model
+  * Adds QA test to exercise all of the SERA site response calculators
+
+  [Michele Simionato]
+  * Internal: there is not need to call ``gsim.init()`` anymore
+
+  [Graeme Weatherill]
+  * Adds parametric GMPE for cratonic regions in Europe
+
+  [Michele Simionato]
   * In the agglosses output of scenario_risk the losses were incorrectly
     multiplied by the realization weight
   * Removed the output `sourcegroups` and added the output `events`
