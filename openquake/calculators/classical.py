@@ -128,7 +128,7 @@ class ClassicalCalculator(base.HazardCalculator):
         :param acc: accumulator dictionary
         :param dic: dict with keys pmap, calc_times, rup_data
         """
-        with self.monitor('aggregate curves', autoflush=True):
+        with self.monitor('aggregate curves'):
             d = dic['calc_times']  # srcid -> eff_rups, eff_sites, dt
             self.calc_times += d
             srcids = []
@@ -199,16 +199,16 @@ class ClassicalCalculator(base.HazardCalculator):
             self.calc_stats(parent)  # post-processing
             return {}
 
-        with self.monitor('managing sources', autoflush=True):
+        with self.monitor('managing sources'):
             smap = parallel.Starmap(
-                self.core_task.__func__, hdf5path=self.datastore.filename)
+                self.core_task.__func__, h5=self.datastore.hdf5)
             self.submit_sources(smap)
         self.calc_times = AccumDict(accum=numpy.zeros(3, F32))
         try:
             acc = smap.reduce(self.agg_dicts, self.acc0())
             self.store_rlz_info(acc.eff_ruptures)
         finally:
-            with self.monitor('store source_info', autoflush=True):
+            with self.monitor('store source_info'):
                 self.store_source_info(self.calc_times)
             if self.sources_by_task:
                 num_tasks = max(self.sources_by_task) + 1
@@ -275,7 +275,7 @@ class ClassicalCalculator(base.HazardCalculator):
 
         kind can be ('hcurves', 'mean'), ('hmaps', 'mean'),  ...
         """
-        with self.monitor('saving statistics', autoflush=True):
+        with self.monitor('saving statistics'):
             for kind in pmap_by_kind:  # i.e. kind == 'hcurves-stats'
                 pmaps = pmap_by_kind[kind]
                 if kind == 'rlz_by_sid':  # pmaps is actually a rlz_by_sid
@@ -310,7 +310,7 @@ class ClassicalCalculator(base.HazardCalculator):
         grp_name = {grp.id: grp.name for sm in csm_info.source_models
                     for grp in sm.src_groups}
         data = []
-        with self.monitor('saving probability maps', autoflush=True):
+        with self.monitor('saving probability maps'):
             for grp_id, pmap in pmap_by_grp_id.items():
                 if pmap:  # pmap can be missing if the group is filtered away
                     base.fix_ones(pmap)  # avoid saving PoEs == 1
@@ -327,11 +327,11 @@ class ClassicalCalculator(base.HazardCalculator):
             self.datastore['disagg_by_grp'] = numpy.array(
                 sorted(data), grp_extreme_dt)
 
-            # save a copy of the poes in hdf5cache
-            with hdf5.File(self.hdf5cache) as cache:
+            # save a copy of the poes in cachepath
+            with hdf5.File(self.cachepath) as cache:
                 cache['oqparam'] = oq
                 self.datastore.hdf5.copy('poes', cache)
-            self.calc_stats(self.hdf5cache)
+            self.calc_stats(self.cachepath)
 
     def calc_stats(self, parent):
         oq = self.oqparam
@@ -361,8 +361,7 @@ class ClassicalCalculator(base.HazardCalculator):
              N, hstats, oq.individual_curves, oq.max_sites_disagg)
             for t in self.sitecol.split_in_tiles(ct)]
         parallel.Starmap(build_hazard, allargs,
-                         hdf5path=self.datastore.filename).reduce(
-                             self.save_hazard)
+                         h5=self.datastore.hdf5).reduce(self.save_hazard)
 
 
 @base.calculators.add('preclassical')

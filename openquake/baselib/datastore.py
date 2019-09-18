@@ -22,7 +22,7 @@ import getpass
 import collections
 import h5py
 
-from openquake.baselib import hdf5, config
+from openquake.baselib import hdf5, config, performance
 
 CALC_REGEX = r'(calc|cache)_(\d+)\.hdf5'
 
@@ -83,6 +83,7 @@ def hdf5new(datadir=None):
     fname = os.path.join(datadir, 'calc_%d.hdf5' % calc_id)
     new = hdf5.File(fname, 'w')
     new.path = fname
+    performance.init_performance(new)
     return new
 
 
@@ -182,20 +183,19 @@ class DataStore(collections.abc.MutableMapping):
             raise IOError('File not found: %s' % self.filename)
         self.hdf5 = ()  # so that `key in self.hdf5` is valid
         self.open(self.mode)
+        if 'w' in self.mode or '+' in self.mode:
+            performance.init_performance(self.hdf5)
 
     def open(self, mode):
         """
         Open the underlying .hdf5 file and the parent, if any
         """
         if self.hdf5 == ():  # not already open
-            kw = dict(mode=mode, libver='latest')
-            if mode == 'r':
-                kw['swmr'] = True
             try:
-                self.hdf5 = hdf5.File(self.filename, **kw)
+                self.hdf5 = hdf5.File(self.filename, mode)
             except OSError as exc:
                 if os.path.exists(self.filename + '~'):  # temporary file
-                    self.hdf5 = hdf5.File(self.filename + '~', **kw)
+                    self.hdf5 = hdf5.File(self.filename + '~', 'r')
                 else:
                     raise OSError('%s in %s' % (exc, self.filename))
 
@@ -214,7 +214,7 @@ class DataStore(collections.abc.MutableMapping):
         """
         self._export_dir = value
 
-    def hdf5cache(self):
+    def cachepath(self):
         """
         :returns: the path to the .hdf5 cache file associated to the calc_id
         """

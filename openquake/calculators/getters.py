@@ -321,8 +321,6 @@ class GmfGetter(object):
         """
         if hasattr(self, 'computers'):  # init already called
             return
-        with hdf5.File(self.rupgetter.filename, 'r') as parent:
-            self.weights = parent['weights'][()]
         self.computers = []
         for ebr in self.rupgetter.get_ruptures(self.srcfilter):
             sitecol = self.sitecol.filtered(ebr.sids)
@@ -420,7 +418,7 @@ def group_by_rlz(data, rlzs):
 
 
 def gen_rupture_getters(dstore, slc=slice(None),
-                        concurrent_tasks=1, hdf5cache=None):
+                        concurrent_tasks=1, cachepath=None):
     """
     :yields: RuptureGetters
     """
@@ -448,26 +446,11 @@ def gen_rupture_getters(dstore, slc=slice(None),
             else:
                 e0 = e0s[nr: nr + len(block)]
             rgetter = RuptureGetter(
-                hdf5cache or dstore.filename, numpy.array(block), grp_id,
+                cachepath or dstore.filename, numpy.array(block), grp_id,
                 trt_by_grp[grp_id], samples[grp_id], rlzs_by_gsim[grp_id], e0)
             yield rgetter
             nr += len(block)
             ne += rgetter.num_events
-
-
-def get_maxloss_rupture(dstore, loss_type):
-    """
-    :param dstore: a DataStore instance
-    :param loss_type: a loss type string
-    :returns:
-        EBRupture instance corresponding to the maximum loss for the
-        given loss type
-    """
-    lti = dstore['oqparam'].lti[loss_type]
-    ridx = dstore.get_attr('rup_loss_table', 'ridx')[lti]
-    [rgetter] = gen_rupture_getters(dstore, slice(ridx, ridx + 1))
-    [ebr] = rgetter.get_ruptures()
-    return ebr
 
 
 # this is never called directly; gen_rupture_getters is used instead
@@ -509,7 +492,8 @@ class RuptureGetter(object):
             rg.rlzs_by_gsim = self.rlzs_by_gsim
             rg.e0 = numpy.array([self.e0[i]])
             n_occ = array[i]['n_occ']
-            rg.weight = len(srcfilter.close_sids(array[i], self.trt)) * n_occ
+            sids = srcfilter.close_sids(array[i], self.trt)
+            rg.weight = len(sids) * n_occ
             if rg.weight:
                 out.append(rg)
         return out
@@ -535,12 +519,11 @@ class RuptureGetter(object):
         """
         eid_rlz = []
         for e0, rup in zip(self.e0, self.rup_array):
-            rup_id = rup['rup_id']
-            ebr = EBRupture(mock.Mock(rup_id=rup_id), rup['srcidx'],
+            ebr = EBRupture(mock.Mock(rup_id=rup['serial']), rup['srcidx'],
                             self.grp_id, rup['n_occ'], self.samples)
             for rlz_id, eids in ebr.get_eids_by_rlz(self.rlzs_by_gsim).items():
                 for eid in eids:
-                    eid_rlz.append((eid + e0, rup_id, rlz_id))
+                    eid_rlz.append((eid + e0, rup['id'], rlz_id))
         return numpy.array(eid_rlz, events_dt)
 
     def get_rupdict(self):
@@ -565,7 +548,7 @@ class RuptureGetter(object):
             dic['occurrence_rate'] = rec['occurrence_rate']
             dic['grp_id'] = rec['grp_id']
             dic['n_occ'] = rec['n_occ']
-            dic['rup_id'] = rec['rup_id']
+            dic['serial'] = rec['serial']
             dic['mag'] = rec['mag']
             dic['srcid'] = source_ids[rec['srcidx']]
         return dic
@@ -592,7 +575,7 @@ class RuptureGetter(object):
                 mesh[2] = geom['depth']
                 rupture_cls, surface_cls = code2cls[rec['code']]
                 rupture = object.__new__(rupture_cls)
-                rupture.rup_id = rec['rup_id']
+                rupture.rup_id = rec['serial']
                 rupture.surface = object.__new__(surface_cls)
                 rupture.mag = rec['mag']
                 rupture.rake = rec['rake']

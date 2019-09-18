@@ -94,18 +94,8 @@ Monitoring
 =============================
 
 A major feature of the Starmap API is the ability to monitor the time spent
-in each task and the memory allocated. Such information is written into a
-temporary HDF5 file and can be accessed after the last task output is
-returned:
-
->>> import h5py
->>> with h5py.File(smap.hdf5path, 'r') as f:
-...     f['performance_data'].dtype.names
-('operation', 'time_sec', 'memory_mb', 'counts')
-
-The user can also specify an explicit value for `hdf5path`, corresponding
-to an existing HDF5 file; in such a case the performance info will be appended
-there.
+in each task and the memory allocated. Such information is written into an
+HDF5 file properly prepared with the function `init_performance`.
 
 The engine provides a command `oq show performance` to print the performance
 information stored in the HDF5 file in a nice way.
@@ -173,9 +163,10 @@ except ImportError:
     def setproctitle(title):
         "Do nothing"
 
-from openquake.baselib import config, workerpool
+from openquake.baselib import config, hdf5, workerpool
 from openquake.baselib.zeromq import zmq, Socket
-from openquake.baselib.performance import Monitor, memory_rss, dump
+from openquake.baselib.performance import (
+    Monitor, memory_rss, dump, init_performance)
 from openquake.baselib.general import (
     split_in_blocks, block_splitter, AccumDict, humansize, CallableDict,
     gettemp)
@@ -457,11 +448,11 @@ class IterResult(object):
     :param done_total:
         a function returning the number of done tasks and the total
     :param sent:
-        the number of bytes sent (0 if OQ_DISTRIBUTE=no)
+        a nested dictionary name -> {argname: number of bytes sent}
     :param progress:
         a logging function for the progress report
     :param hdf5path:
-        an open hdf5.File where to store persistently the performance info
+        a path where to store persistently the performance info
      """
     def __init__(self, iresults, taskname, argnames, sent, hdf5path):
         self.iresults = iresults
@@ -497,11 +488,10 @@ class IterResult(object):
             else:
                 # measure only the memory used by the main process
                 mem_gb = memory_rss(os.getpid()) / GB
-            name = result.mon.operation[6:]  # strip 'total '
-            result.mon.save_task_info(
-                temp, result, name, self.sent[name], mem_gb)
-            result.mon.flush(temp)
-            if not result.func_args:  # not subtask
+            if not result.func_args:  # real output
+                name = result.mon.operation[6:]  # strip 'total '
+                result.mon.save_task_info(temp, result, name, mem_gb)
+                result.mon.flush(temp)
                 yield val
 
     def __iter__(self):
@@ -510,8 +500,9 @@ class IterResult(object):
         t0 = time.time()
         self.received = []
         self.nbytes = AccumDict()
-        temp = self.hdf5path + '~'
+        temp = hdf5.File(self.hdf5path + '~', 'w')
         try:
+            init_performance(temp, swmr=True)
             yield from self._iter(temp)
             if self.received:
                 tot = sum(self.received)
@@ -523,11 +514,12 @@ class IterResult(object):
                 if self.nbytes:
                     nb = {k: humansize(v) for k, v in self.nbytes.items()}
                     logging.info('Received %s', nb)
-                # collect performance info
-                dump(temp, self.hdf5path)
         finally:
-            if os.path.exists(temp):
-                os.remove(temp)
+            if os.path.basename(self.hdf5path).startswith('calc_'):
+                dump(temp, self.hdf5path, self.sent)
+            temp.close()
+            if os.path.exists(self.hdf5path + '~'):
+                os.remove(self.hdf5path + '~')
 
     def reduce(self, agg=operator.add, acc=None):
         if acc is None:
@@ -622,7 +614,7 @@ class Starmap(object):
     def apply(cls, task, args, concurrent_tasks=cpu_count * 2,
               maxweight=None, weight=lambda item: 1,
               key=lambda item: 'Unspecified',
-              distribute=None, progress=logging.info, hdf5path=None,
+              distribute=None, progress=logging.info, h5=None,
               num_cores=None):
         r"""
         Apply a task to a tuple of the form (sequence, \*other_args)
@@ -638,7 +630,7 @@ class Starmap(object):
         :param key: function to extract the kind of an item in arg0
         :param distribute: if not given, inferred from OQ_DISTRIBUTE
         :param progress: logging function to use (default logging.info)
-        :param hdf5path: an open hdf5.File where to store the performance info
+        :param h5: an open hdf5.File where to store the performance info
         :param num_cores: the number of available cores (or None)
         :returns: an :class:`IterResult` object
         """
@@ -650,24 +642,26 @@ class Starmap(object):
         else:  # split_in_blocks is eager
             taskargs = [(blk,) + args for blk in split_in_blocks(
                 arg0, concurrent_tasks or 1, weight, key)]
-        return cls(task, taskargs, distribute, progress, hdf5path,
-                   num_cores).submit_all()
+        return cls(
+            task, taskargs, distribute, progress, h5, num_cores
+        ).submit_all()
 
     def __init__(self, task_func, task_args=(), distribute=None,
-                 progress=logging.info, hdf5path=None, num_cores=None):
+                 progress=logging.info, h5=None, num_cores=None):
         self.__class__.init(distribute=distribute)
         self.task_func = task_func
-        if hdf5path:
-            match = re.search(r'(\d+)', os.path.basename(hdf5path))
+        if h5:
+            match = re.search(r'(\d+)', os.path.basename(h5.filename))
             self.calc_id = int(match.group(1))
         else:
             self.calc_id = None
+            h5 = hdf5.File(gettemp(suffix='.hdf5'), 'w')
         self.monitor = Monitor(task_func.__name__)
         self.monitor.calc_id = self.calc_id
         self.name = self.monitor.operation or task_func.__name__
         self.task_args = task_args
         self.progress = progress
-        self.hdf5path = hdf5path or gettemp(suffix='.hdf5')
+        self.h5 = h5
         self.num_cores = num_cores
         self.queue = []
         try:
@@ -741,7 +735,7 @@ class Starmap(object):
             for args in self.task_args:
                 self.submit(*args)
         else:  # submit at most num_cores task
-            self.queue = list(self.task_args)
+            self.queue = [(self.task_func,) + args for args in self.task_args]
         return self.get_results()
 
     def get_results(self):
@@ -749,7 +743,7 @@ class Starmap(object):
         :returns: an :class:`IterResult` instance
         """
         return IterResult(self._loop(), self.name, self.argnames,
-                          self.sent, self.hdf5path)
+                          self.sent, self.h5.filename)
 
     def reduce(self, agg=operator.add, acc=None):
         """
@@ -764,8 +758,8 @@ class Starmap(object):
         if self.queue:  # called from reduce_queue
             first_args = self.queue[:self.num_cores]
             self.queue = self.queue[self.num_cores:]
-            for args in first_args:
-                self.submit(*args)
+            for func, *args in first_args:
+                self.submit(*args, func=func)
         if not hasattr(self, 'socket'):  # no submit was ever made
             return ()
 
@@ -776,20 +770,23 @@ class Starmap(object):
             if self.calc_id != res.mon.calc_id:
                 logging.warning('Discarding a result from job %s, since this '
                                 'is job %d', res.mon.calc_id, self.calc_id)
-                continue
             elif res.msg == 'TASK_ENDED':
-                self.log_percent()
                 if self.queue:
-                    self.submit(*self.queue.pop())
+                    func, *args = self.queue.pop()
+                    self.submit(*args, func=func)
+                    if self.queue:
+                        func, *args = self.queue.pop()
+                        self.submit(*args, func=func)
+                        self.todo += 1
+                    logging.debug('%d tasks in queue', len(self.queue))
                 else:
                     self.todo -= 1
+                    logging.debug('%d tasks to do', self.todo)
+                self.log_percent()
             elif res.msg:
                 logging.warning(res.msg)
-            elif res.func_args:  # resubmit subtask
-                func, *args = res.func_args
-                self.submit(*args, func=func, monitor=res.mon)
-                yield res
-                self.todo += 1
+            elif res.func_args:  # add subtask
+                self.queue.append(res.func_args)
             else:
                 yield res
         self.log_percent()

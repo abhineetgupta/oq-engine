@@ -21,6 +21,7 @@ import abc
 import pdb
 import logging
 import operator
+import itertools
 import traceback
 from datetime import datetime
 from shapely import wkt
@@ -51,6 +52,15 @@ U32 = numpy.uint32
 F32 = numpy.float32
 TWO16 = 2 ** 16
 TWO32 = 2 ** 32
+
+stats_dt = numpy.dtype([('mean', F32), ('std', F32),
+                        ('min', F32), ('max', F32), ('len', U16)])
+
+
+def get_stats(seq):
+    std = numpy.nan if len(seq) == 1 else numpy.std(seq, ddof=1)
+    tup = (numpy.mean(seq), std, numpy.min(seq), numpy.max(seq), len(seq))
+    return numpy.array(tup, stats_dt)
 
 
 class InvalidCalculationID(Exception):
@@ -121,16 +131,15 @@ class BaseCalculator(metaclass=abc.ABCMeta):
     def __init__(self, oqparam, calc_id=None):
         self.datastore = datastore.DataStore(calc_id)
         self._monitor = Monitor(
-            '%s.run' % self.__class__.__name__, measuremem=True)
-        self._monitor.hdf5path = self.datastore.filename  # autoflush
+            '%s.run' % self.__class__.__name__, measuremem=True,
+            hdf5path=self.datastore.filename)
         self.oqparam = oqparam
 
     def monitor(self, operation='', **kw):
         """
         :returns: a new Monitor instance
         """
-        mon = self._monitor(operation)
-        mon.hdf5path = self.datastore.filename  # flushable monitor
+        mon = self._monitor(operation, hdf5path=self.datastore.filename)
         self._monitor.calc_id = mon.calc_id = self.datastore.calc_id
         vars(mon).update(kw)
         return mon
@@ -355,11 +364,11 @@ class HazardCalculator(BaseCalculator):
         :returns: a SourceFilter/UcerfFilter
         """
         oq = self.oqparam
-        self.hdf5cache = self.datastore.hdf5cache()
+        self.cachepath = self.datastore.cachepath()
         sitecol = self.sitecol.complete if self.sitecol else None
         if 'ucerf' in oq.calculation_mode:
-            return UcerfFilter(sitecol, oq.maximum_distance, self.hdf5cache)
-        return SourceFilter(sitecol, oq.maximum_distance, self.hdf5cache)
+            return UcerfFilter(sitecol, oq.maximum_distance, self.cachepath)
+        return SourceFilter(sitecol, oq.maximum_distance, self.cachepath)
 
     @property
     def E(self):
@@ -396,6 +405,8 @@ class HazardCalculator(BaseCalculator):
         oq = self.oqparam
         self._read_risk_data()
         self.check_overflow()  # check if self.sitecol is too large
+        if hasattr(self, 'sitecol'):
+            self.save_cache(sitecol=self.sitecol)
         if ('source_model_logic_tree' in oq.inputs and
                 oq.hazard_calculation_id is None):
             self.csm = readinput.get_composite_source_model(
@@ -536,7 +547,7 @@ class HazardCalculator(BaseCalculator):
         .sitecol, .assetcol
         """
         oq = self.oqparam
-        with self.monitor('reading exposure', autoflush=True):
+        with self.monitor('reading exposure'):
             self.sitecol, self.assetcol, discarded = (
                 readinput.get_sitecol_assetcol(
                     oq, haz_sitecol, self.crmodel.loss_types))
@@ -639,8 +650,6 @@ class HazardCalculator(BaseCalculator):
             exposure = self.read_exposure(haz_sitecol)
             self.datastore['assetcol'] = self.assetcol
             self.datastore['cost_calculator'] = exposure.cost_calculator
-            self.datastore['assetcol/num_taxonomies'] = (
-                self.assetcol.num_taxonomies_by_site())
             if hasattr(readinput.exposure, 'exposures'):
                 self.datastore['assetcol/exposures'] = (
                     numpy.array(exposure.exposures, hdf5.vstr))
@@ -663,8 +672,6 @@ class HazardCalculator(BaseCalculator):
                     self.sitecol.sids, haz_sitecol.sids):
                 self.assetcol = assetcol.reduce(self.sitecol)
                 self.datastore['assetcol'] = self.assetcol
-                self.datastore['assetcol/num_taxonomies'] = (
-                    self.assetcol.num_taxonomies_by_site())
                 logging.info('Extracted %d/%d assets',
                              len(self.assetcol), len(assetcol))
             else:
@@ -712,14 +719,25 @@ class HazardCalculator(BaseCalculator):
         self.param = dict(individual_curves=oq.individual_curves,
                           avg_losses=oq.avg_losses)
 
+        # compute exposure stats
+        if hasattr(self, 'assetcol'):
+            arr = self.assetcol.array
+            num_assets = list(general.countby(arr, 'site_id').values())
+            self.datastore['assets_by_site'] = get_stats(num_assets)
+            num_taxos = self.assetcol.num_taxonomies_by_site()
+            self.datastore['taxonomies_by_site'] = get_stats(num_taxos)
+            save_exposed_values(
+                self.datastore, self.assetcol, oq.loss_names, oq.aggregate_by)
+
     def save_cache(self, **kw):
         """
         A shortcut method to store data in the hdf5 cache file, if any
         """
-        if hasattr(self, 'hdf5cache'):  # no scenario
-            with hdf5.File(self.hdf5cache, 'r+') as cache:
-                for k, v in kw.items():
+        with hdf5.File(self.datastore.cachepath(), libver='latest') as cache:
+            for k, v in kw.items():
+                if v is not None:
                     cache[k] = v
+            cache.swmr_mode = True
 
     def store_rlz_info(self, eff_ruptures=None):
         """
@@ -849,7 +867,7 @@ class RiskCalculator(HazardCalculator):
             _, self.crmodel.tmap = logictree.taxonomy_mapping(
                 self.oqparam.inputs.get('taxonomy_mapping'),
                 self.assetcol.tagcol.taxonomy)
-        with self.monitor('building riskinputs', autoflush=True):
+        with self.monitor('building riskinputs'):
             riskinputs = list(self._gen_riskinputs(kind))
         assert riskinputs
         logging.info('Built %d risk inputs', len(riskinputs))
@@ -861,9 +879,9 @@ class RiskCalculator(HazardCalculator):
         :param sid: a site ID
         :returns: a PmapGetter or GmfDataGetter
         """
-        hdf5cache = getattr(self, 'hdf5cache', None)
-        if hdf5cache:
-            dstore = hdf5cache
+        cachepath = getattr(self, 'cachepath', None)
+        if cachepath:
+            dstore = cachepath
         elif (self.oqparam.hazard_calculation_id and
               'gmf_data' not in self.datastore):
             # 'gmf_data' in self.datastore happens for ShakeMap calculations
@@ -915,7 +933,7 @@ class RiskCalculator(HazardCalculator):
             self.core_task.__func__,
             (self.riskinputs, self.crmodel, self.param, self.monitor()),
             concurrent_tasks=self.oqparam.concurrent_tasks or 1,
-            weight=get_weight, hdf5path=self.datastore.filename
+            weight=get_weight, h5=self.datastore.hdf5
         ).reduce(self.combine)
         return res
 
@@ -1001,3 +1019,34 @@ def import_gmfs(dstore, fname, sids):
     dstore['gmf_data/imts'] = ' '.join(imts)
     dstore['weights'] = numpy.ones(1)
     return eids
+
+
+def save_exposed_values(dstore, assetcol, lossnames, tagnames):
+    """
+    Store 2^n arrays where n is the number of tagNames. For instance with
+    the tags country, occupancy it stores 2^2 = 4 arrays:
+
+    exposed_values/agg_country_occupancy  # shape (T1, T2, L)
+    exposed_values/agg_country            # shape (T1, L)
+    exposed_values/agg_occupancy          # shape (T2, L)
+    exposed_values/agg                    # shape (L,)
+    """
+    aval = numpy.zeros((len(assetcol), len(lossnames)), F32)  # (A, L)
+    array = assetcol.array
+    for lti, lt in enumerate(lossnames):
+        if lt == 'occupants':
+            aval[array['ordinal'], lti] = array[lt + '_None']
+        elif lt.endswith('_ins'):
+            aval[array['ordinal'], lti] = array['value-' + lt[:-4]]
+        elif lt in assetcol.fields:
+            aval[array['ordinal'], lti] = array['value-' + lt]
+    for n in range(len(tagnames) + 1, -1, -1):
+        for names in itertools.combinations(tagnames, n):
+            name = 'exposed_values/' + '_'.join(('agg',) + names)
+            logging.info('Storing %s', name)
+            dstore[name] = assetcol.aggregate_by(list(names), aval)
+            attrs = dict(shape_descr=names + ('loss_name',),
+                         loss_name=lossnames)
+            for tagname in tagnames:
+                attrs[tagname] = getattr(assetcol.tagcol, tagname)[1:]
+            dstore.set_attrs(name, **attrs)

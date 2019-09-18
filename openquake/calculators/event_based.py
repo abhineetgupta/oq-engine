@@ -126,7 +126,7 @@ class EventBasedCalculator(base.HazardCalculator):
         gsims_by_trt = self.csm.gsim_lt.values
         logging.info('Building ruptures')
         smap = parallel.Starmap(
-            self.build_ruptures.__func__, hdf5path=self.datastore.filename)
+            self.build_ruptures.__func__, h5=self.datastore.hdf5)
         eff_ruptures = AccumDict(accum=0)  # grp_id => potential ruptures
         calc_times = AccumDict(accum=numpy.zeros(3, F32))  # nr, ns, dt
         ses_idx = 0
@@ -166,19 +166,20 @@ class EventBasedCalculator(base.HazardCalculator):
         # logic tree reduction, must be called before storing the events
         self.store_rlz_info(eff_ruptures)
         self.init_logic_tree(self.csm.info)
-        with self.monitor('store source_info', autoflush=True):
+        with self.monitor('store source_info'):
             self.store_source_info(calc_times)
         logging.info('Reordering the ruptures and storing the events')
         attrs = self.datastore.getitem('ruptures').attrs
         sorted_ruptures = self.datastore.getitem('ruptures')[()]
         # order the ruptures by rup_id
-        sorted_ruptures.sort(order='rup_id')
+        sorted_ruptures.sort(order='serial')
         ngroups = len(self.csm.info.trt_by_grp)
         grp_indices = numpy.zeros((ngroups, 2), U32)
         grp_ids = sorted_ruptures['grp_id']
         for grp_id, [startstop] in get_indices(grp_ids).items():
             grp_indices[grp_id] = startstop
         self.datastore['ruptures'] = sorted_ruptures
+        self.datastore['ruptures']['id'] = numpy.arange(len(sorted_ruptures))
         self.datastore.set_attrs('ruptures', grp_indices=grp_indices, **attrs)
         with self.monitor('saving events'):
             self.save_events(sorted_ruptures)
@@ -189,16 +190,16 @@ class EventBasedCalculator(base.HazardCalculator):
         """
         dstore = (self.datastore.parent if self.datastore.parent
                   else self.datastore)
-        hdf5cache = dstore.hdf5cache()
-        mode = 'r+' if os.path.exists(hdf5cache) else 'w'
-        with hdf5.File(hdf5cache, mode) as cache:
+        cachepath = dstore.cachepath()
+        mode = 'r+' if os.path.exists(cachepath) else 'w'
+        with hdf5.File(cachepath, mode) as cache:
             if 'ruptures' not in cache:
                 dstore.hdf5.copy('ruptures', cache)
             if 'rupgeoms' not in cache:
                 dstore.hdf5.copy('rupgeoms', cache)
         yield from gen_rupture_getters(
             dstore, concurrent_tasks=self.oqparam.concurrent_tasks or 1,
-            hdf5cache=hdf5cache)
+            cachepath=cachepath)
         if self.datastore.parent:
             self.datastore.parent.close()
 
@@ -258,7 +259,7 @@ class EventBasedCalculator(base.HazardCalculator):
             it = parallel.Starmap(RuptureGetter.get_eid_rlz,
                                   ((rgetter,) for rgetter in rgetters),
                                   progress=logging.debug,
-                                  hdf5path=self.datastore.filename)
+                                  h5=self.datastore.hdf5)
         i = 0
         for eid_rlz in it:
             for er in eid_rlz:
@@ -344,7 +345,7 @@ class EventBasedCalculator(base.HazardCalculator):
                     for rgetter in self.gen_rupture_getters())
         # call compute_gmfs in parallel
         acc = parallel.Starmap(
-            self.core_task.__func__, iterargs, hdf5path=self.datastore.filename
+            self.core_task.__func__, iterargs, h5=self.datastore.hdf5
         ).reduce(self.agg_dicts, self.acc0())
 
         if self.indices:
