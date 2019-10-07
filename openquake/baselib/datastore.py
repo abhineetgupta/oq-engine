@@ -173,6 +173,7 @@ class DataStore(collections.abc.MutableMapping):
                 self.calc_id = calc_id
             self.filename = os.path.join(
                 datadir, 'calc_%s.hdf5' % self.calc_id)
+        self.tempname = self.filename[:-5] + '_tmp.hdf5'
         if not os.path.exists(datadir):
             os.makedirs(datadir)
         self.params = params
@@ -183,8 +184,6 @@ class DataStore(collections.abc.MutableMapping):
             raise IOError('File not found: %s' % self.filename)
         self.hdf5 = ()  # so that `key in self.hdf5` is valid
         self.open(self.mode)
-        if 'w' in self.mode or '+' in self.mode:
-            performance.init_performance(self.hdf5)
 
     def open(self, mode):
         """
@@ -194,10 +193,7 @@ class DataStore(collections.abc.MutableMapping):
             try:
                 self.hdf5 = hdf5.File(self.filename, mode)
             except OSError as exc:
-                if os.path.exists(self.filename + '~'):  # temporary file
-                    self.hdf5 = hdf5.File(self.filename + '~', 'r')
-                else:
-                    raise OSError('%s in %s' % (exc, self.filename))
+                raise OSError('%s in %s' % (exc, self.filename))
 
     @property
     def export_dir(self):
@@ -214,23 +210,22 @@ class DataStore(collections.abc.MutableMapping):
         """
         self._export_dir = value
 
-    def cachepath(self):
-        """
-        :returns: the path to the .hdf5 cache file associated to the calc_id
-        """
-        return os.path.join(self.datadir, 'cache_%d.hdf5' % self.calc_id)
-
     def getitem(self, name):
         """
         Return a dataset by using h5py.File.__getitem__
         """
         return h5py.File.__getitem__(self.hdf5, name)
 
-    def set_nbytes(self, key, nbytes=None):
+    def swmr_on(self):
         """
-        Set the `nbytes` attribute on the HDF5 object identified by `key`.
+        Enable the SWMR mode on the underlying HDF5 file
         """
-        return self.hdf5.set_nbytes(key, nbytes)
+        self.close()  # flush everything
+        self.open('a')
+        try:
+            self.hdf5.swmr_mode = True
+        except ValueError:  # already set
+            pass
 
     def set_attrs(self, key, **kw):
         """
@@ -286,24 +281,6 @@ class DataStore(collections.abc.MutableMapping):
         """
         return hdf5.create(
             self.hdf5, key, dtype, shape, compression, fillvalue, attrs)
-
-    def extend(self, key, array, **attrs):
-        """
-        Extend the dataset associated to the given key; create it if needed
-
-        :param key: name of the dataset
-        :param array: array to store
-        :param attrs: a dictionary of attributes
-        """
-        try:
-            dset = self.hdf5[key]
-        except KeyError:
-            dset = hdf5.create(self.hdf5, key, array.dtype,
-                               shape=(None,) + array.shape[1:])
-        hdf5.extend(dset, array)
-        for k, v in attrs.items():
-            dset.attrs[k] = v
-        return dset
 
     def save(self, key, kw):
         """

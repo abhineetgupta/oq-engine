@@ -26,14 +26,16 @@ import numpy
 from openquake.baselib.general import humansize
 from openquake.baselib import hdf5
 
-perf_dt = numpy.dtype([('operation', (bytes, 50)), ('time_sec', float),
+# NB: one can use vstr fields in extensible datasets, but then reading
+# them on-the-fly in SWMR mode will fail with an OSError:
+# Can't read data (address of object past end of allocation)
+# this is why below I am using '<S50' byte strings
+perf_dt = numpy.dtype([('operation', '<S50'), ('time_sec', float),
                        ('memory_mb', float), ('counts', int)])
 task_info_dt = numpy.dtype(
-    [('taskname', hdf5.vstr), ('taskno', numpy.uint32),
+    [('taskname', '<S50'), ('taskno', numpy.uint32),
      ('weight', numpy.float32), ('duration', numpy.float32),
      ('received', numpy.int64), ('mem_gb', numpy.float32)])
-
-task_sent_dt = numpy.dtype([('taskname', hdf5.vstr), ('sent', hdf5.vstr)])
 
 
 def init_performance(hdf5file, swmr=False):
@@ -47,7 +49,7 @@ def init_performance(hdf5file, swmr=False):
     if 'task_info' not in h5:
         hdf5.create(h5, 'task_info', task_info_dt)
     if 'task_sent' not in h5:
-        hdf5.create(h5, 'task_sent', task_sent_dt)
+        h5['task_sent'] = '{}'
     if swmr:
         try:
             h5.swmr_mode = True
@@ -107,11 +109,11 @@ class Monitor(object):
     calc_id = None
 
     def __init__(self, operation='', measuremem=False, inner_loop=False,
-                 hdf5path=None):
+                 h5=None):
         self.operation = operation
         self.measuremem = measuremem
         self.inner_loop = inner_loop
-        self.hdf5path = hdf5path
+        self.h5 = h5
         self.mem = 0
         self.duration = 0
         self._start_time = self._stop_time = time.time()
@@ -169,14 +171,14 @@ class Monitor(object):
         self._stop_time = time.time()
         self.duration += self._stop_time - self._start_time
         self.counts += 1
-        if self.hdf5path:
-            self.flush(self.hdf5path)
+        if self.h5:
+            self.flush(self.h5)
 
-    def save_task_info(self, hdf5path, res, name, mem_gb=0):
+    def save_task_info(self, h5, res, name, mem_gb=0):
         """
         Called by parallel.IterResult.
 
-        :param hdf5path: where to save the info
+        :param h5: where to save the info
         :param res: a :class:`Result` object
         :param name: name of the task function
         :param mem_gb: memory consumption at the saving time (optional)
@@ -184,11 +186,8 @@ class Monitor(object):
         t = (name, self.task_no, self.weight, self.duration, len(res.pik),
              mem_gb)
         data = numpy.array([t], task_info_dt)
-        if isinstance(hdf5path, str):
-            hdf5.extend3(hdf5path, 'task_info', data)
-        else:
-            hdf5.extend(hdf5path['task_info'], data)
-            hdf5path['task_info'].flush()  # notify the reader
+        hdf5.extend(h5['task_info'], data)
+        h5['task_info'].flush()  # notify the reader
 
     def reset(self):
         """
@@ -198,7 +197,7 @@ class Monitor(object):
         self.mem = 0
         self.counts = 0
 
-    def flush(self, hdf5path):
+    def flush(self, h5):
         """
         Save the measurements on the performance file
         """
@@ -212,11 +211,8 @@ class Monitor(object):
             data = numpy.concatenate(lst)
         if len(data) == 0:  # no information
             return
-        if isinstance(hdf5path, str):
-            hdf5.extend3(hdf5path, 'performance_data', data)
-        else:
-            hdf5.extend(hdf5path['performance_data'], data)
-            hdf5path['performance_data'].flush()  # notify the reader
+        hdf5.extend(h5['performance_data'], data)
+        h5['performance_data'].flush()  # notify the reader
         self.reset()
 
     # TODO: rename this as spawn; see what will break
@@ -250,22 +246,3 @@ class Monitor(object):
                 msg, self.duration, self.counts)
         else:
             return '<%s>' % msg
-
-
-def dump(h, perspath, sent):
-    """
-    Dump the performance info into a persistent file,
-    then remove the temporary file.
-
-    :param h: the temporary file
-    :param perspath: the persistent file
-    :param sent: dictionary taskname -> argname -> nbytes
-    """
-    sent_data = numpy.array(list(sent.items()), task_sent_dt)
-    with hdf5.File(perspath, 'r+') as h5:
-        hdf5.extend(h5['performance_data'], h['performance_data'][()])
-        hdf5.extend(h5['task_info'], h['task_info'][()])
-        hdf5.extend(h5['task_sent'], sent_data)
-        for k, v in h['task_info'].attrs.items():
-            h5['task_info'].attrs[k] = v
-

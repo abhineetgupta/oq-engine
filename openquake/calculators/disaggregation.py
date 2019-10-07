@@ -28,7 +28,6 @@ from openquake.baselib.general import AccumDict, gen_slices, get_indices
 from openquake.baselib.python3compat import encode
 from openquake.hazardlib.calc import disagg
 from openquake.hazardlib.imt import from_string
-from openquake.hazardlib.calc.filters import SourceFilter
 from openquake.hazardlib.gsim.base import ContextMaker
 from openquake.hazardlib.contexts import RuptureContext
 from openquake.hazardlib.tom import PoissonTOM
@@ -116,7 +115,6 @@ def compute_disagg(dstore, slc, cmaker, iml2s, trti, bin_edges, monitor):
     oq = dstore['oqparam']
     sitecol = dstore['sitecol']
     rupdata = {k: dstore['rup/' + k][slc] for k in dstore['rup']}
-    dstore.close()
     result = {'trti': trti}
     # all the time is spent in collect_bin_data
     RuptureContext.temporal_occurrence_model = PoissonTOM(
@@ -217,7 +215,7 @@ class DisaggregationCalculator(base.HazardCalculator):
         """
         oq = self.oqparam
         tl = oq.truncation_level
-        src_filter = SourceFilter(self.sitecol, oq.maximum_distance)
+        src_filter = self.src_filter()
         if hasattr(self, 'csm'):
             for sg in self.csm.src_groups:
                 if sg.atomic:
@@ -307,7 +305,6 @@ class DisaggregationCalculator(base.HazardCalculator):
                 for slc in gen_slices(start, stop, blocksize):
                     allargs.append((self.datastore, slc, cmaker,
                                     self.iml2s, trti, self.bin_edges))
-        self.datastore.close()
         results = parallel.Starmap(
             compute_disagg, allargs, h5=self.datastore.hdf5
         ).reduce(self.agg_result, AccumDict(accum={}))
@@ -357,7 +354,6 @@ class DisaggregationCalculator(base.HazardCalculator):
         :param results:
             a dictionary sid -> trti -> disagg matrix
         """
-        self.datastore.open('r+')
         T = len(self.trts)
         # build a dictionary sid -> 8D matrix of shape (T, ..., M, P)
         results = {sid: _8d_matrix(dic, T) for sid, dic in results.items()}

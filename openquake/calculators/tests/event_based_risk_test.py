@@ -75,7 +75,6 @@ class EventBasedRiskTestCase(CalculatorTestCase):
         # make sure the agg_curves-stats has the right attrs
         self.check_attr('return_periods', [30, 60, 120, 240, 480, 960])
         self.check_attr('units', [b'EUR', b'EUR'])
-        self.check_attr('nbytes', 96)
 
         # test the loss curves exporter
         [f1] = export(('loss_curves/rlz-0', 'csv'), self.calc.datastore)
@@ -110,7 +109,7 @@ class EventBasedRiskTestCase(CalculatorTestCase):
         self.assertEqualFiles('expected/%s' % strip_calc_id(fname), fname)
 
         aw = extract(self.calc.datastore, 'agg_losses/structural')
-        self.assertEqual(aw.stats, [b'mean'])
+        self.assertEqual(aw.stats, ['mean'])
         self.assertEqual(aw.array, numpy.float32([767.82324]))
 
         fnames = export(('agg_curves-stats', 'csv'), self.calc.datastore)
@@ -126,7 +125,7 @@ class EventBasedRiskTestCase(CalculatorTestCase):
         [fname] = export(('losses_by_event', 'csv'), self.calc.datastore)
         self.assertEqualFiles('expected/%s' % strip_calc_id(fname), fname)
 
-        # extract agg_curves
+        # extract agg_curves, no tags
         aw = extract(self.calc.datastore, 'agg_curves?kind=stats&'
                      'loss_type=structural&absolute=1')
         tmp = gettemp(rst_table(aw.to_table()))
@@ -148,6 +147,31 @@ class EventBasedRiskTestCase(CalculatorTestCase):
         self.assertEqualFiles('expected/agg_curves4.csv', tmp)
 
         # TODO: fix extract agg_curves for insured types
+
+        # extract agg_curves with tags
+        self.run_calc(case_1.__file__, 'job_eb.ini',
+                      aggregate_by='policy,taxonomy',
+                      hazard_calculation_id=str(self.calc.datastore.calc_id))
+
+        aw = extract(self.calc.datastore, 'agg_curves?kind=stats&'
+                     'loss_type=structural&absolute=1&policy=A&taxonomy=RC')
+        tmp = gettemp(rst_table(aw.to_table()))
+        self.assertEqualFiles('expected/agg_curves5.csv', tmp)
+
+        aw = extract(self.calc.datastore, 'agg_curves?kind=rlzs&'
+                     'loss_type=structural&absolute=1&policy=A&taxonomy=RC')
+        tmp = gettemp(rst_table(aw.to_table()))
+        self.assertEqualFiles('expected/agg_curves6.csv', tmp)
+
+        aw = extract(self.calc.datastore, 'agg_curves?kind=stats&'
+                     'loss_type=structural&absolute=0&policy=A&taxonomy=RC')
+        tmp = gettemp(rst_table(aw.to_table()))
+        self.assertEqualFiles('expected/agg_curves7.csv', tmp)
+
+        aw = extract(self.calc.datastore, 'agg_curves?kind=rlzs&'
+                     'loss_type=structural&absolute=0&policy=A&taxonomy=RC')
+        tmp = gettemp(rst_table(aw.to_table()))
+        self.assertEqualFiles('expected/agg_curves8.csv', tmp)
 
     def test_case_1f(self):
         # vulnerability function with BT
@@ -216,10 +240,6 @@ class EventBasedRiskTestCase(CalculatorTestCase):
         # this is a test with statistics and without conditional_loss_poes
         self.run_calc(case_3.__file__, 'job.ini',
                       exports='csv', concurrent_tasks='4')
-
-        # test the number of bytes saved in the rupture records
-        nbytes = self.calc.datastore.get_attr('ruptures', 'nbytes')
-        self.assertEqual(nbytes, 3260)
 
         # test postprocessing
         self.calc.datastore.close()
@@ -301,7 +321,7 @@ class EventBasedRiskTestCase(CalculatorTestCase):
 
         self.check_multi_tag(self.calc.datastore)
 
-        # ------------------------- ebrisk calculator ---------------------- #
+    def test_case_master_eb(self):
         self.run_calc(case_master.__file__, 'job.ini',
                       calculation_mode='ebrisk', exports='',
                       aggregate_by='id')

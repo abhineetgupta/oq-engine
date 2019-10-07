@@ -28,8 +28,8 @@ from openquake.hazardlib.calc.filters import split_sources
 from openquake.hazardlib.calc.hazard_curve import classical
 from openquake.hazardlib.probability_map import (
     ProbabilityMap, ProbabilityCurve)
-from openquake.commonlib import calc, util
-from openquake.commonlib.source_model_factory import random_filtered_sources
+from openquake.commonlib import calc, util, source
+from openquake.commonlib.source_reader import random_filtered_sources
 from openquake.calculators import getters
 from openquake.calculators import base
 
@@ -40,6 +40,13 @@ F64 = numpy.float64
 weight = operator.attrgetter('weight')
 grp_extreme_dt = numpy.dtype([('grp_id', U16), ('grp_name', hdf5.vstr),
                              ('extreme_poe', F32)])
+
+
+def estimate_duration(rups_per_task, maxdist, N, M):
+    """
+    Estimate the task duration with an heuristic formula
+    """
+    return (rups_per_task * N * M) ** .333 * (maxdist / 300) ** 2
 
 
 def get_src_ids(sources):
@@ -161,25 +168,32 @@ class ClassicalCalculator(base.HazardCalculator):
                     if vlen:
                         self.datastore.hdf5.save_vlen('rup/' + k, v)
                     else:
-                        self.datastore.extend('rup/' + k, v)
+                        # NB: creating dataset on the fly is ugly
+                        try:
+                            dset = self.datastore['rup/' + k]
+                        except KeyError:
+                            dset = self.datastore.create_dset(
+                                'rup/' + k, v.dtype,
+                                shape=(None,) + v.shape[1:])
+                        hdf5.extend(dset, v)
         return acc
 
     def acc0(self):
         """
         Initial accumulator, a dict grp_id -> ProbabilityMap(L, G)
         """
-        csm_info = self.csm.info
         zd = AccumDict()
         num_levels = len(self.oqparam.imtls.array)
         rparams = {'grp_id', 'srcidx', 'occurrence_rate',
                    'weight', 'probs_occur', 'sid_', 'lon_', 'lat_'}
-        for grp in self.csm.src_groups:
-            gsims = csm_info.gsim_lt.get_gsims(grp.trt)
-            cm = ContextMaker(grp.trt, gsims)
-            rparams.update(cm.REQUIRES_RUPTURE_PARAMETERS)
-            for dparam in cm.REQUIRES_DISTANCES:
-                rparams.add(dparam + '_')
-            zd[grp.id] = ProbabilityMap(num_levels, len(gsims))
+        for sm in self.csm_info.source_models:
+            for grp in sm.src_groups:
+                gsims = self.csm_info.gsim_lt.get_gsims(grp.trt)
+                cm = ContextMaker(grp.trt, gsims)
+                rparams.update(cm.REQUIRES_RUPTURE_PARAMETERS)
+                for dparam in cm.REQUIRES_DISTANCES:
+                    rparams.add(dparam + '_')
+                zd[grp.id] = ProbabilityMap(num_levels, len(gsims))
         zd.eff_ruptures = AccumDict(accum=0)  # grp_id -> eff_ruptures
         self.rparams = sorted(rparams)
         self.sources_by_task = {}  # task_no => src_ids
@@ -193,19 +207,18 @@ class ClassicalCalculator(base.HazardCalculator):
         """
         oq = self.oqparam
         if oq.hazard_calculation_id and not oq.compare_with_classical:
-            parent = util.read(self.oqparam.hazard_calculation_id)
-            self.csm_info = parent['csm_info']
-            parent.close()
-            self.calc_stats(parent)  # post-processing
+            with util.read(self.oqparam.hazard_calculation_id) as parent:
+                self.csm_info = parent['csm_info']
+            self.calc_stats()  # post-processing
             return {}
 
-        with self.monitor('managing sources'):
-            smap = parallel.Starmap(
-                self.core_task.__func__, h5=self.datastore.hdf5)
-            self.submit_sources(smap)
+        smap = parallel.Starmap(self.core_task.__func__)
+        smap.task_queue = list(self.gen_task_queue())  # really fast
+        self.datastore.swmr_on()
+        smap.h5 = self.datastore.hdf5
         self.calc_times = AccumDict(accum=numpy.zeros(3, F32))
         try:
-            acc = smap.reduce(self.agg_dicts, self.acc0())
+            acc = smap.get_results().reduce(self.agg_dicts, self.acc0())
             self.store_rlz_info(acc.eff_ruptures)
         finally:
             with self.monitor('store source_info'):
@@ -221,50 +234,48 @@ class ClassicalCalculator(base.HazardCalculator):
                         task_no, (0, 0, U32([])))
                 self.datastore['sources_by_task'] = sbt
                 self.sources_by_task.clear()
-        if not self.calc_times:
-            raise RuntimeError('All sources were filtered away!')
         self.calc_times.clear()  # save a bit of memory
         return acc
 
-    def submit_sources(self, smap):
+    def gen_task_queue(self):
         """
-        Send the sources split in tasks
+        Build a task queue to be attached to the Starmap instance
         """
         oq = self.oqparam
-        N, L = len(self.sitecol), len(oq.imtls.array)
+        N = len(self.sitecol)
+        M = len(oq.imtls)
         trt_sources = self.csm.get_trt_sources(optimize_dupl=True)
-        maxweight = min(self.csm.get_maxweight(
-            trt_sources, weight, oq.concurrent_tasks), 1E6)
+        del self.csm  # save memory
+        maxweight = source.get_maxweight(
+            trt_sources, weight, oq.concurrent_tasks)
+        maxdist = int(max(oq.maximum_distance.values()))
         if oq.task_duration is None:  # inferred
-            # from 1 minute up to 6 hours
-            td = max((maxweight * N * L) ** numpy.log10(4) / 3000, 60)
+            # from 1 minute up to 1 day
+            td = int(max(estimate_duration(maxweight, maxdist, N, M), 60))
         else:  # user given
-            td = oq.task_duration
+            td = int(oq.task_duration)
         param = dict(
             truncation_level=oq.truncation_level, imtls=oq.imtls,
             filter_distance=oq.filter_distance, reqv=oq.get_reqv(),
+            collapse_factor=oq.collapse_factor,
             pointsource_distance=oq.pointsource_distance,
             max_sites_disagg=oq.max_sites_disagg,
             task_duration=td, maxweight=maxweight)
-        logging.info('ruptures_per_task = %(maxweight)d, '
-                     'task_duration = %(task_duration)ds', param)
-
-        for trt, sources in trt_sources:
-            heavy_sources = []
-            gsims = self.csm.info.gsim_lt.get_gsims(trt)
-            if hasattr(sources, 'atomic') and sources.atomic:
-                smap.submit(sources, self.src_filter, gsims, param,
-                            func=classical)
+        logging.info(f'ruptures_per_task={maxweight}, '
+                     f'maxdist={maxdist} km, task_duration={td} s')
+        srcfilter = self.src_filter(self.datastore.tempname)
+        if oq.calculation_mode == 'preclassical':
+            f1 = f2 = preclassical
+        else:
+            f1, f2 = classical, classical_split_filter
+        for trt, sources, atomic in trt_sources:
+            gsims = self.csm_info.gsim_lt.get_gsims(trt)
+            if atomic:
+                # do not split atomic groups
+                yield f1, (sources, srcfilter, gsims, param)
             else:  # regroup the sources in blocks
                 for block in block_splitter(sources, maxweight, weight):
-                    if block.weight > maxweight:
-                        heavy_sources.extend(block)
-                    smap.submit(block, self.src_filter, gsims, param)
-
-            # heavy source are split on the master node
-            if heavy_sources:
-                logging.info('Found %d heavy sources %s, ...',
-                             len(heavy_sources), heavy_sources[0])
+                    yield f2, (block, srcfilter, gsims, param)
 
     def save_hazard(self, acc, pmap_by_kind):
         """
@@ -302,12 +313,8 @@ class ClassicalCalculator(base.HazardCalculator):
             a dictionary grp_id -> hazard curves
         """
         oq = self.oqparam
-        try:
-            csm_info = self.csm.info
-        except AttributeError:
-            csm_info = self.datastore['csm_info']
-        trt_by_grp = csm_info.grp_by("trt")
-        grp_name = {grp.id: grp.name for sm in csm_info.source_models
+        trt_by_grp = self.csm_info.grp_by("trt")
+        grp_name = {grp.id: grp.name for sm in self.csm_info.source_models
                     for grp in sm.src_groups}
         data = []
         with self.monitor('saving probability maps'):
@@ -323,17 +330,11 @@ class ClassicalCalculator(base.HazardCalculator):
                         for sid in pmap)
                     data.append((grp_id, grp_name[grp_id], extreme))
         if oq.hazard_calculation_id is None and 'poes' in self.datastore:
-            self.datastore.set_nbytes('poes')
             self.datastore['disagg_by_grp'] = numpy.array(
                 sorted(data), grp_extreme_dt)
+            self.calc_stats()
 
-            # save a copy of the poes in cachepath
-            with hdf5.File(self.cachepath) as cache:
-                cache['oqparam'] = oq
-                self.datastore.hdf5.copy('poes', cache)
-            self.calc_stats(self.cachepath)
-
-    def calc_stats(self, parent):
+    def calc_stats(self):
         oq = self.oqparam
         hstats = oq.hazard_stats()
         # initialize datasets
@@ -357,11 +358,13 @@ class ClassicalCalculator(base.HazardCalculator):
         logging.info('Building hazard statistics with %d concurrent_tasks', ct)
         weights = [rlz.weight for rlz in self.rlzs_assoc.realizations]
         allargs = [  # this list is very fast to generate
-            (getters.PmapGetter(parent, weights, t.sids, oq.poes),
+            (getters.PmapGetter(self.datastore, weights, t.sids, oq.poes),
              N, hstats, oq.individual_curves, oq.max_sites_disagg)
             for t in self.sitecol.split_in_tiles(ct)]
-        parallel.Starmap(build_hazard, allargs,
-                         h5=self.datastore.hdf5).reduce(self.save_hazard)
+        self.datastore.swmr_on()
+        parallel.Starmap(
+            build_hazard, allargs, h5=self.datastore.hdf5
+        ).reduce(self.save_hazard)
 
 
 @base.calculators.add('preclassical')
