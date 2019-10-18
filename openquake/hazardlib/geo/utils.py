@@ -128,8 +128,8 @@ class _GeographicObjects(object):
         if not dic:
             raise SiteAssociationError(
                 'No sites could be associated within %s km' % assoc_dist)
-        return (sitecol.filtered(dic),
-                numpy.array([dic[sid] for sid in sorted(dic)]),
+        sids = sorted(dic)
+        return (sitecol.filtered(sids), numpy.array([dic[s] for s in sids]),
                 discarded)
 
     def assoc2(self, assets_by_site, assoc_dist, mode, asset_refs):
@@ -190,7 +190,7 @@ def assoc(objects, sitecol, assoc_dist, mode, asset_refs=()):
     :returns: (filtered site collection, filtered objects)
     """
     if isinstance(objects, numpy.ndarray) or hasattr(objects, 'lons'):
-        # objects is a geo array with lon, lat fields or a mesh-like instance
+        # objects is a geo array with lon, lat fields; used for ShakeMaps
         return _GeographicObjects(objects).assoc(sitecol, assoc_dist, mode)
     else:  # objects is the list assets_by_site
         return _GeographicObjects(sitecol).assoc2(
