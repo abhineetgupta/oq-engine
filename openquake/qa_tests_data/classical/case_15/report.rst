@@ -2,9 +2,9 @@ Classical PSHA with GMPE logic tree with multiple tectonic region types
 =======================================================================
 
 ============== ===================
-checksum32     905,885,649        
-date           2019-10-02T10:07:36
-engine_version 3.8.0-git6f03622c6e
+checksum32     3_553_734_699      
+date           2020-01-16T05:31:49
+engine_version 3.8.0-git83c45f7244
 ============== ===================
 
 num_sites = 3, num_levels = 17, num_rlzs = 8
@@ -22,6 +22,7 @@ rupture_mesh_spacing            1.0
 complex_fault_mesh_spacing      1.0               
 width_of_mfd_bin                0.1               
 area_source_discretization      10.0              
+pointsource_distance            None              
 ground_motion_correlation_model None              
 minimum_intensity               {}                
 random_seed                     23                
@@ -83,45 +84,46 @@ Slowest sources
 ========= ====== ==== ============ ========= ========= ============
 source_id grp_id code num_ruptures calc_time num_sites eff_ruptures
 ========= ====== ==== ============ ========= ========= ============
-1         0      P    15           0.00239   0.20000   15          
-1         3      A    240          0.00235   0.01250   240         
-1         2      A    240          0.00139   0.01250   240         
-2         1      P    15           0.00137   0.20000   15          
+1         2      A    240          0.05614   3.00000   240         
+1         3      A    240          0.05025   3.00000   240         
+1         0      P    15           0.00436   3.00000   15          
+2         1      P    15           0.00425   3.00000   15          
 ========= ====== ==== ============ ========= ========= ============
 
 Computation times by source typology
 ------------------------------------
-==== ========= ======
-code calc_time counts
-==== ========= ======
-A    0.00374   2     
-P    0.00376   2     
-==== ========= ======
+==== =========
+code calc_time
+==== =========
+A    0.10639  
+P    0.00862  
+==== =========
 
 Information about the tasks
 ---------------------------
-================== ======= ========= ======= ======= =======
-operation-duration mean    stddev    min     max     outputs
-SourceReader       0.00824 0.00550   0.00334 0.01418 3      
-preclassical       0.00229 7.055E-04 0.00166 0.00292 4      
-================== ======= ========= ======= ======= =======
+================== ======= ======= ======= ======= =======
+operation-duration mean    stddev  min     max     outputs
+SourceReader       0.00994 0.00728 0.00155 0.01446 3      
+preclassical       0.00851 0.00201 0.00519 0.01150 32     
+================== ======= ======= ======= ======= =======
 
 Data transfer
 -------------
-============ ========================================== ========
-task         sent                                       received
-SourceReader apply_unc=4.4 KB ltmodel=590 B fname=318 B 11.25 KB
-preclassical srcs=6.12 KB params=2.74 KB gsims=1.09 KB  1.34 KB 
-============ ========================================== ========
+============ =========================================== ========
+task         sent                                        received
+SourceReader apply_unc=4.4 KB ltmodel=590 B fname=318 B  8.8 KB  
+preclassical srcs=63.28 KB params=26.44 KB gsims=9.02 KB 11.44 KB
+============ =========================================== ========
 
 Slowest operations
 ------------------
-====================== ======== ========= ======
-calc_29531             time_sec memory_mb counts
-====================== ======== ========= ======
-composite source model 0.03230  0.0       1     
-total SourceReader     0.02473  0.0       3     
-total preclassical     0.00918  0.0       4     
-store source_info      0.00239  0.0       1     
-aggregate curves       0.00141  0.0       4     
-====================== ======== ========= ======
+=========================== ======== ========= ======
+calc_43329                  time_sec memory_mb counts
+=========================== ======== ========= ======
+total preclassical          0.27219  0.0       32    
+splitting/filtering sources 0.13029  0.0       32    
+composite source model      0.03244  0.0       1     
+total SourceReader          0.02983  0.0       3     
+aggregate curves            0.00578  0.0       32    
+store source_info           0.00254  0.0       1     
+=========================== ======== ========= ======

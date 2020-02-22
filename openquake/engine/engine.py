@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2010-2019 GEM Foundation
+# Copyright (C) 2010-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -19,7 +19,6 @@
 """Engine: A collection of fundamental functions for initializing and running
 calculations."""
 
-import io
 import os
 import re
 import sys
@@ -31,7 +30,6 @@ import logging
 import traceback
 import platform
 import psutil
-import numpy
 try:
     from setproctitle import setproctitle
 except ImportError:
@@ -42,8 +40,8 @@ from openquake.baselib.python3compat import decode
 from openquake.baselib import (
     parallel, general, config, __version__, zeromq as z)
 from openquake.commonlib.oqvalidation import OqParam
-from openquake.commonlib import readinput, oqzip
-from openquake.calculators import base, views, export
+from openquake.commonlib import readinput
+from openquake.calculators import base, export
 from openquake.commonlib import logs
 
 OQ_API = 'https://api.openquake.org'
@@ -67,25 +65,24 @@ if OQ_DISTRIBUTE == 'zmq':
         """
         num_workers = 0
         w = config.zworkers
-        try:
+        if w.host_cores:
             host_cores = [hc.split() for hc in w.host_cores.split(',')]
-        except AttributeError:
+        else:
             host_cores = []
         for host, _cores in host_cores:
             url = 'tcp://%s:%s' % (host, w.ctrl_port)
             with z.Socket(url, z.zmq.REQ, 'connect') as sock:
                 if not general.socket_ready(url):
-                    logs.LOG.warn('%s is not running', host)
+                    logging.warning('%s is not running', host)
                     continue
                 num_workers += sock.send('get_num_workers')
         if num_workers == 0:
             num_workers = os.cpu_count()
-            logs.LOG.warn('Missing host_cores, no idea about how many cores '
-                          'are available, using %d', num_workers)
-        parallel.Starmap.num_cores = num_workers
-        parallel.Starmap.oversubmit = calc.oqparam.oversubmit
+            logging.warning('Missing host_cores, no idea about how many cores '
+                            'are available, using %d', num_workers)
+        parallel.CT = num_workers * 2
         OqParam.concurrent_tasks.default = num_workers * 2
-        logs.LOG.warn('Using %d zmq workers', num_workers)
+        logging.warning('Using %d zmq workers', num_workers)
 
 elif OQ_DISTRIBUTE.startswith('celery'):
     import celery.task.control  # noqa: E402
@@ -97,14 +94,13 @@ elif OQ_DISTRIBUTE.startswith('celery'):
         """
         stats = celery.task.control.inspect(timeout=1).stats()
         if not stats:
-            logs.LOG.critical("No live compute nodes, aborting calculation")
+            logging.critical("No live compute nodes, aborting calculation")
             logs.dbcmd('finish', calc.datastore.calc_id, 'failed')
             sys.exit(1)
         ncores = sum(stats[k]['pool']['max-concurrency'] for k in stats)
-        parallel.Starmap.num_cores = ncores
-        parallel.Starmap.oversubmit = calc.oqparam.oversubmit
+        parallel.CT = ncores * 2
         OqParam.concurrent_tasks.default = ncores * 2
-        logs.LOG.warn('Using %s, %d cores', ', '.join(sorted(stats)), ncores)
+        logging.warning('Using %s, %d cores', ', '.join(sorted(stats)), ncores)
 
     def celery_cleanup(terminate):
         """
@@ -118,19 +114,18 @@ elif OQ_DISTRIBUTE.startswith('celery'):
         # tasks associated with the current job.
         tasks = parallel.Starmap.running_tasks
         if tasks:
-            logs.LOG.warn('Revoking %d tasks', len(tasks))
+            logging.warning('Revoking %d tasks', len(tasks))
         else:  # this is normal when OQ_DISTRIBUTE=no
-            logs.LOG.debug('No task to revoke')
+            logging.debug('No task to revoke')
         while tasks:
             task = tasks.pop()
             tid = task.task_id
             celery.task.control.revoke(tid, terminate=terminate)
-            logs.LOG.debug('Revoked task %s', tid)
-
+            logging.debug('Revoked task %s', tid)
 else:
 
     def set_concurrent_tasks_default(calc):
-        parallel.Starmap.oversubmit = calc.oqparam.oversubmit
+        pass
 
 
 def expose_outputs(dstore, owner=getpass.getuser(), status='complete'):
@@ -195,7 +190,7 @@ class MasterKilled(KeyboardInterrupt):
 
 
 def inhibitSigInt(signum, _stack):
-    logs.LOG.warn('Killing job, please wait')
+    logging.warning('Killing job, please wait')
 
 
 def manage_signals(signum, _stack):
@@ -255,9 +250,9 @@ def job_from_file(job_ini, job_id, username, **kw):
     :returns:
         an oqparam instance
     """
-    hc_id = kw.get('hazard_calculation_id')
+    hc_id = kw.pop('hazard_calculation_id', None)
     try:
-        oq = readinput.get_oqparam(job_ini, hc_id=hc_id)
+        oq = readinput.get_oqparam(job_ini, hc_id=hc_id, **kw)
     except Exception:
         logs.dbcmd('finish', job_id, 'deleted')
         raise
@@ -295,7 +290,8 @@ def poll_queue(job_id, pid, poll_time):
                                {'status': 'failed', 'is_running': 0})
             elif any(job.id < job_id for job in jobs):
                 if first_time:
-                    logs.LOG.warn('Waiting for jobs %s', [j.id for j in jobs])
+                    logging.warning(
+                        'Waiting for jobs %s', [j.id for j in jobs])
                     logs.dbcmd('update_job', job_id,
                                {'status': 'submitted', 'pid': pid})
                     first_time = False
@@ -326,45 +322,33 @@ def run_calc(job_id, oqparam, exports, hazard_calculation_id=None, **kw):
     logging.info('Using engine version %s', __version__)
     msg = check_obsolete_version(oqparam.calculation_mode)
     if msg:
-        logs.LOG.warn(msg)
+        logging.warning(msg)
     calc.from_engine = True
     tb = 'None\n'
     try:
-        if not oqparam.hazard_calculation_id:
-            if 'input_zip' in oqparam.inputs:  # starting from an archive
-                with open(oqparam.inputs['input_zip'], 'rb') as arch:
-                    data = numpy.array(arch.read())
-            else:
-                logs.LOG.info('Zipping the input files')
-                bio = io.BytesIO()
-                oqzip.zip_job(oqparam.inputs['job_ini'], bio, (), oqparam,
-                              logging.debug)
-                data = numpy.array(bio.getvalue())
-                del bio
-            calc.datastore['input/zip'] = data
-            calc.datastore.set_attrs('input/zip', nbytes=data.nbytes)
-            del data  # save memory
-
         poll_queue(job_id, _PID, poll_time=15)
+    except BaseException:
+        # the job aborted even before starting
+        logs.dbcmd('finish', job_id, 'aborted')
+        return
+    try:
         if OQ_DISTRIBUTE.endswith('pool'):
-            logs.LOG.warning('Using %d cores on %s',
-                             parallel.Starmap.num_cores, platform.node())
-        if OQ_DISTRIBUTE == 'zmq' and 'host_cores' in config.zworkers:
+            logging.warning('Using %d cores on %s',
+                            parallel.CT // 2, platform.node())
+        if OQ_DISTRIBUTE == 'zmq' and config.zworkers['host_cores']:
+            logging.info('Asking the DbServer to start the workers')
             logs.dbcmd('zmq_start')  # start the zworkers
             logs.dbcmd('zmq_wait')  # wait for them to go up
         set_concurrent_tasks_default(calc)
         t0 = time.time()
         calc.run(exports=exports,
                  hazard_calculation_id=hazard_calculation_id, **kw)
-        logs.LOG.info('Exposing the outputs to the database')
+        logging.info('Exposing the outputs to the database')
         expose_outputs(calc.datastore)
-        duration = time.time() - t0
-        records = views.performance_view(calc.datastore, add_calc_id=False)
-        logs.dbcmd('save_performance', job_id, records)
-        calc.datastore.close()
-        logs.LOG.info('Calculation %d finished correctly in %d seconds',
-                      job_id, duration)
+        logging.info('Calculation %d finished correctly in %d seconds',
+                     job_id, time.time() - t0)
         logs.dbcmd('finish', job_id, 'complete')
+        calc.datastore.close()
     except BaseException as exc:
         if isinstance(exc, MasterKilled):
             msg = 'aborted'
@@ -372,7 +356,7 @@ def run_calc(job_id, oqparam, exports, hazard_calculation_id=None, **kw):
             msg = 'failed'
         tb = traceback.format_exc()
         try:
-            logs.LOG.critical(tb)
+            logging.critical(tb)
             logs.dbcmd('finish', job_id, msg)
         except BaseException:  # an OperationalError may always happen
             sys.stderr.write(tb)
@@ -381,7 +365,7 @@ def run_calc(job_id, oqparam, exports, hazard_calculation_id=None, **kw):
         # if there was an error in the calculation, this part may fail;
         # in such a situation, we simply log the cleanup error without
         # taking further action, so that the real error can propagate
-        if OQ_DISTRIBUTE == 'zmq' and 'host_cores' in config.zworkers:
+        if OQ_DISTRIBUTE == 'zmq' and config.zworkers['host_cores']:
             logs.dbcmd('zmq_stop')  # stop the zworkers
         try:
             if OQ_DISTRIBUTE.startswith('celery'):
@@ -389,7 +373,7 @@ def run_calc(job_id, oqparam, exports, hazard_calculation_id=None, **kw):
         except BaseException:
             # log the finalization error only if there is no real error
             if tb == 'None\n':
-                logs.LOG.error('finalizing', exc_info=True)
+                logging.error('finalizing', exc_info=True)
     return calc
 
 
@@ -427,7 +411,25 @@ def check_obsolete_version(calculation_mode='WebUI'):
         tag_name = json.loads(decode(data))['tag_name']
         current = version_triple(__version__)
         latest = version_triple(tag_name)
+    except KeyError:  # 'tag_name' not found
+        # NOTE: for unauthenticated requests, the rate limit allows for up
+        # to 60 requests per hour. Therefore, sometimes the api returns the
+        # following message:
+        # b'{"message":"API rate limit exceeded for aaa.aaa.aaa.aaa. (But'
+        # ' here\'s the good news: Authenticated requests get a higher rate'
+        # ' limit. Check out the documentation for more details.)",'
+        # ' "documentation_url":'
+        # ' "https://developer.github.com/v3/#rate-limiting"}'
+        msg = ('An error occurred while calling %s/engine/latest to check'
+               ' if the installed version of the engine is up to date.\n'
+               '%s' % (OQ_API, data.decode('utf8')))
+        logging.warning(msg)
+        return
     except Exception:  # page not available or wrong version tag
+        msg = ('An error occurred while calling %s/engine/latest to check'
+               ' if the installed version of the engine is up to date.' %
+               OQ_API)
+        logging.warning(msg, exc_info=True)
         return
     if current < latest:
         return ('Version %s of the engine is available, but you are '

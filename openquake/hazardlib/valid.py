@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2013-2019 GEM Foundation
+# Copyright (C) 2013-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -20,6 +20,7 @@
 Validation library for the engine, the desktop tools, and anything else
 """
 
+import os
 import re
 import ast
 import logging
@@ -29,7 +30,7 @@ import numpy
 from openquake.baselib.general import distinct
 from openquake.baselib import hdf5
 from openquake.hazardlib import imt, scalerel, gsim, pmf, site
-from openquake.hazardlib.gsim import registry
+from openquake.hazardlib.gsim.base import registry, gsim_aliases
 from openquake.hazardlib.calc import disagg
 from openquake.hazardlib.calc.filters import IntegrationDistance
 
@@ -72,17 +73,41 @@ class FromFile(object):
         return '[FromFile]'
 
 
-# more tests are in tests/valid_test.py
-def gsim(value):
+def to_toml(uncertainty):
     """
-    Convert a string in TOML format into a GSIM instance
+    Converts an uncertainty node into a TOML string
+    """
+    if hasattr(uncertainty, 'attrib'):  # is a node
+        text = uncertainty.text.strip()
+        kvs = uncertainty.attrib.items()
+    else:  # is a string
+        text = uncertainty.strip()
+        kvs = []
+    text = gsim_aliases.get(text, text)  # use the gsim alias if any
+    if not text.startswith('['):  # a bare GSIM name was passed
+        text = '[%s]' % text
+    for k, v in kvs:
+        try:
+            v = ast.literal_eval(v)
+        except (SyntaxError, ValueError):
+            v = repr(v)
+        text += '\n%s = %s' % (k, v)
+    return text
 
-    >>> gsim('[BooreAtkinson2011]')
+
+# more tests are in tests/valid_test.py
+def gsim(value, basedir=''):
+    """
+    Convert a string into a GSIM instance
+
+    >>> gsim('BooreAtkinson2011')
     [BooreAtkinson2011]
     """
-    if not value.startswith('['):  # assume the GSIM name
-        value = '[%s]' % value
+    value = to_toml(value)  # convert to TOML
     [(gsim_name, kwargs)] = toml.loads(value).items()
+    for k, v in kwargs.items():
+        if k.endswith(('_file', '_table')):
+            kwargs[k] = os.path.normpath(os.path.join(basedir, v))
     minimum_distance = float(kwargs.pop('minimum_distance', 0))
     if gsim_name == 'FromFile':
         return FromFile()
@@ -90,7 +115,11 @@ def gsim(value):
         gsim_class = registry[gsim_name]
     except KeyError:
         raise ValueError('Unknown GSIM: %s' % gsim_name)
-    gs = gsim_class(**kwargs)
+    if basedir:
+        gs = gsim_class(**kwargs)
+    else:
+        gs = object.__new__(gsim_class)
+        gs.kwargs = kwargs
     gs._toml = '\n'.join(line.strip() for line in value.splitlines())
     gs.minimum_distance = minimum_distance
     return gs
@@ -578,9 +607,19 @@ def boolean(value):
         raise ValueError('Not a boolean: %s' % value)
 
 
-range01 = FloatRange(0, 1)
+def range01(value):
+    """
+    :param value: a string convertible to a float in the range 0..1
+    """
+    val = value.lower()
+    if val == 'true':
+        return 1.
+    elif val == 'false':
+        return 0.
+    return FloatRange(0, 1)(val)
+
+
 probability = FloatRange(0, 1)
-probability.__name__ = 'probability'
 
 
 def probabilities(value, rows=0, cols=0):
@@ -1161,6 +1200,7 @@ class ParamSet(hdf5.LiteralAttrs, metaclass=MetaParamSet):
     <MyParams a='2', b=7.2>
     """
     params = {}
+    KNOWN_INPUTS = {}
 
     @classmethod
     def check(cls, dic):
@@ -1208,7 +1248,9 @@ class ParamSet(hdf5.LiteralAttrs, metaclass=MetaParamSet):
             try:
                 convert = getattr(self.__class__, name).validator
             except AttributeError:
-                logging.warning("The parameter '%s' is unknown, ignoring" % name)
+                if name not in self.KNOWN_INPUTS:
+                    logging.warning(
+                        "The parameter '%s' is unknown, ignoring" % name)
                 continue
             try:
                 value = convert(val)

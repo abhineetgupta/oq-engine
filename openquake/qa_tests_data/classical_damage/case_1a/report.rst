@@ -2,9 +2,9 @@ Classical PSHA-Based Hazard
 ===========================
 
 ============== ===================
-checksum32     485,846,695        
-date           2019-10-02T10:07:15
-engine_version 3.8.0-git6f03622c6e
+checksum32     485_846_695        
+date           2020-01-16T05:30:55
+engine_version 3.8.0-git83c45f7244
 ============== ===================
 
 num_sites = 1, num_levels = 8, num_rlzs = 1
@@ -22,6 +22,7 @@ rupture_mesh_spacing            2.0
 complex_fault_mesh_spacing      2.0               
 width_of_mfd_bin                0.1               
 area_source_discretization      20.0              
+pointsource_distance            None              
 ground_motion_correlation_model None              
 minimum_intensity               {}                
 random_seed                     42                
@@ -69,7 +70,7 @@ Number of ruptures per source group
 ====== ========= ============ ============
 grp_id num_sites num_ruptures eff_ruptures
 ====== ========= ============ ============
-0      1.00000   482          482         
+0      0.03112   482          482         
 ====== ========= ============ ============
 
 Exposure model
@@ -89,42 +90,43 @@ Slowest sources
 ========= ====== ==== ============ ========= ========= ============
 source_id grp_id code num_ruptures calc_time num_sites eff_ruptures
 ========= ====== ==== ============ ========= ========= ============
-1         0      S    482          0.00569   0.00207   482         
+1         0      S    482          0.03284   0.03112   482         
 ========= ====== ==== ============ ========= ========= ============
 
 Computation times by source typology
 ------------------------------------
-==== ========= ======
-code calc_time counts
-==== ========= ======
-S    0.00569   1     
-==== ========= ======
+==== =========
+code calc_time
+==== =========
+S    0.03284  
+==== =========
 
 Information about the tasks
 ---------------------------
 ================== ======= ====== ======= ======= =======
 operation-duration mean    stddev min     max     outputs
-SourceReader       0.00552 NaN    0.00552 0.00552 1      
-preclassical       0.00621 NaN    0.00621 0.00621 1      
+SourceReader       0.00527 NaN    0.00527 0.00527 1      
+preclassical       0.03447 NaN    0.03447 0.03447 1      
 ================== ======= ====== ======= ======= =======
 
 Data transfer
 -------------
 ============ ========================================= ========
 task         sent                                      received
-SourceReader                                           2.92 KB 
-preclassical srcs=1.12 KB params=557 B srcfilter=223 B 342 B   
+SourceReader                                           2.4 KB  
+preclassical srcs=1.14 KB params=703 B srcfilter=223 B 366 B   
 ============ ========================================= ========
 
 Slowest operations
 ------------------
-====================== ========= ========= ======
-calc_29451             time_sec  memory_mb counts
-====================== ========= ========= ======
-composite source model 0.01588   0.0       1     
-total preclassical     0.00621   0.0       1     
-total SourceReader     0.00552   0.0       1     
-store source_info      0.00293   0.0       1     
-reading exposure       4.840E-04 0.0       1     
-aggregate curves       2.983E-04 0.0       1     
-====================== ========= ========= ======
+=========================== ========= ========= ======
+calc_43245                  time_sec  memory_mb counts
+=========================== ========= ========= ======
+total preclassical          0.03447   0.0       1     
+composite source model      0.01640   0.0       1     
+total SourceReader          0.00527   0.0       1     
+store source_info           0.00241   0.0       1     
+splitting/filtering sources 7.684E-04 0.0       1     
+reading exposure            4.623E-04 0.0       1     
+aggregate curves            2.866E-04 0.0       1     
+=========================== ========= ========= ======

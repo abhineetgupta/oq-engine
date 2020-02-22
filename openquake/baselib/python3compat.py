@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright (C) 2015-2019 GEM Foundation
+# Copyright (C) 2015-2020 GEM Foundation
 
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -33,7 +33,8 @@ def encode(val):
     :param: a unicode or bytes object
     :returns: bytes
     """
-    if isinstance(val, (list, tuple)):  # encode a list or tuple of strings
+    if isinstance(val, (list, tuple, numpy.ndarray)):
+        # encode a sequence of strings
         return [encode(v) for v in val]
     elif isinstance(val, str):
         return val.encode('utf-8')

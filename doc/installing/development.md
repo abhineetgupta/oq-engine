@@ -96,11 +96,16 @@ pip install -U pip setuptools
 ```
 
 ### Download the OpenQuake source code
+Considering that the complete repository is quite large given its long history, we recommend shallow cloning the repository to download only the latest revision.
 
 ```bash
 mkdir src && cd src
-git clone https://github.com/gem/oq-engine.git
+git clone https://github.com/gem/oq-engine.git --depth=1
 ```
+
+In case you needed the source code with the full history of the repository, you
+can convert the shallow clone into a full repository with the command
+`git fetch --unshallow`.
 
 ### Install OpenQuake
 
@@ -206,15 +211,15 @@ silx view calc_NNN.hdf5
 
 ### Notes ###
 
-*<a name="note1">[1]</a>: extra features, like celery and pam support can be installed running:*
+*<a name="note1">[1]</a>: extra features, like celery and cluster support can be installed running:*
 
 ```bash
 # oq-engine with celery support
 pip install -e oq-engine/[dev,celery]
-# oq-engine with pam support
-pip install -e oq-engine/[dev,pam]
+# oq-engine with cluster support
+pip install -e oq-engine/[dev,cluster]
 # oq-engine with support for both
-pip install -e oq-engine/[dev,celery,pam]
+pip install -e oq-engine/[dev,celery,cluster]
 # oq-engine with GDAL
 pip install -e oq-engine/[platform]
 ```

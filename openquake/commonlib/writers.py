@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2010-2019 GEM Foundation
+# Copyright (C) 2010-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -91,7 +91,14 @@ def extract_from(data, fields):
     return data
 
 
-def write_csv(dest, data, sep=',', fmt='%.6E', header=None, comment=None):
+def _header(fields, sep, renamedict):
+    if renamedict:
+        fields = [renamedict.get(f, f) for f in fields]
+    return encode(sep.join(fields) + '\n')
+
+
+def write_csv(dest, data, sep=',', fmt='%.6E', header=None, comment=None,
+              renamedict=None):
     """
     :param dest: None, file, filename or io.BytesIO instance
     :param data: array to save
@@ -126,14 +133,14 @@ def write_csv(dest, data, sep=',', fmt='%.6E', header=None, comment=None):
 
     nfields = len(autoheader) or len(data[0])
     if comment:
-        if '"' in comment:
-            raise ValueError('There cannot be quotes in %s' % comment)
+        if '"' in comment:  # double quote
+            comment = comment.replace('"', '""')
         com = '#%s"%s"\n' % (sep * (nfields - 1), comment)
         dest.write(encode(com))
 
     someheader = header or autoheader
     if header != 'no-header' and someheader:
-        dest.write(encode(sep.join(someheader) + u'\n'))
+        dest.write(_header(someheader, sep, renamedict))
 
     def format(val):
         col = scientificformat(val, fmt)
@@ -152,7 +159,7 @@ def write_csv(dest, data, sep=',', fmt='%.6E', header=None, comment=None):
                     row.append('%.5f' % val)
                 else:
                     row.append(format(val))
-            dest.write(encode(sep.join(row) + '\n'))
+            dest.write(_header(row, sep, renamedict))
     else:
         for row in data:
             dest.write(encode(sep.join(format(col) for col in row) + '\n'))
@@ -172,7 +179,7 @@ class CsvWriter(object):
         self.fmt = fmt
         self.fnames = set()
 
-    def save(self, data, fname, header=None, comment=None):
+    def save(self, data, fname, header=None, comment=None, renamedict=None):
         """
         Save data on fname.
 
@@ -180,8 +187,9 @@ class CsvWriter(object):
         :param fname: path name
         :param header: header to use
         :param comment: optional dictionary to be converted in a comment
+        :param renamedict: a dictionary for renaming the columns
         """
-        write_csv(fname, data, self.sep, self.fmt, header, comment)
+        write_csv(fname, data, self.sep, self.fmt, header, comment, renamedict)
         self.fnames.add(getattr(fname, 'name', fname))
 
     def save_block(self, data, dest):

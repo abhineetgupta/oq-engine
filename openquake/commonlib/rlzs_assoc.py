@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2010-2019 GEM Foundation
+# Copyright (C) 2010-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -27,8 +27,6 @@ U16 = numpy.uint16
 U32 = numpy.uint32
 F32 = numpy.float32
 weight = operator.attrgetter('weight')
-rlz_dt = numpy.dtype([
-    ('branch_path', 'S200'), ('gsims', 'S100'), ('weight', F32)])
 
 
 class LtRealization(object):
@@ -43,16 +41,16 @@ class LtRealization(object):
         self.weight = weight
 
     def __repr__(self):
-        return '<%d,%s,w=%s>' % (self.ordinal, self.uid, self.weight)
+        return '<%d,%s,w=%s>' % (self.ordinal, self.pid, self.weight)
 
     @property
     def gsim_lt_path(self):
         return self.gsim_rlz.lt_path
 
     @property
-    def uid(self):
+    def pid(self):
         """An unique identifier for effective realizations"""
-        return '_'.join(self.sm_lt_path) + '~' + self.gsim_rlz.uid
+        return '_'.join(self.sm_lt_path) + '~' + self.gsim_rlz.pid
 
     def __lt__(self, other):
         return self.ordinal < other.ordinal
@@ -138,7 +136,10 @@ class RlzsAssoc(object):
                 rlzs_by_gsim = self.get_rlzs_by_gsim(sg.trt, sm.ordinal)
                 if not rlzs_by_gsim:
                     continue
-                dic['grp-%02d' % sg.id] = list(rlzs_by_gsim.values())
+                rows = list(rlzs_by_gsim.values())
+                if len(set(map(len, rows))) == 1:  # all the same length
+                    rows = numpy.array(rows)  # convert rows into 2D array
+                dic['grp-%02d' % sg.id] = rows
         return dic
 
     def _init(self):
@@ -180,11 +181,11 @@ class RlzsAssoc(object):
         return self.realizations[int(mo.group(1))]
 
     def _add_realizations(self, offset, lt_model, all_trts, gsim_rlzs):
-        idx = numpy.arange(offset, offset + len(gsim_rlzs))
+        rlzis = numpy.arange(offset, offset + len(gsim_rlzs))
         rlzs = []
-        for i, gsim_rlz in enumerate(gsim_rlzs):
+        for r, gsim_rlz in zip(rlzis, gsim_rlzs):
             weight = lt_model.weight * gsim_rlz.weight
-            rlz = LtRealization(idx[i], lt_model.path, gsim_rlz, weight)
+            rlz = LtRealization(r, lt_model.path, gsim_rlz, weight)
             self.gsim_by_trt.append(dict(zip(all_trts, gsim_rlz.value)))
             rlzs.append(rlz)
         self.rlzs_by_smodel[lt_model.ordinal] = rlzs

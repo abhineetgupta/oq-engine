@@ -2,9 +2,9 @@ Event Based PSHA
 ================
 
 ============== ===================
-checksum32     269,549,222        
-date           2019-10-02T10:07:18
-engine_version 3.8.0-git6f03622c6e
+checksum32     269_549_222        
+date           2020-01-16T05:30:59
+engine_version 3.8.0-git83c45f7244
 ============== ===================
 
 num_sites = 1, num_levels = 3, num_rlzs = ?
@@ -22,6 +22,7 @@ rupture_mesh_spacing            2.0
 complex_fault_mesh_spacing      2.0               
 width_of_mfd_bin                0.1               
 area_source_discretization      5.0               
+pointsource_distance            None              
 ground_motion_correlation_model None              
 minimum_intensity               {}                
 random_seed                     42                
@@ -44,7 +45,7 @@ Number of ruptures per source group
 ====== ========= ============ ============
 grp_id num_sites num_ruptures eff_ruptures
 ====== ========= ============ ============
-0      0.0       2            0.0         
+0      NaN       2            0.0         
 ====== ========= ============ ============
 
 Slowest sources
@@ -56,31 +57,31 @@ source_id grp_id code num_ruptures calc_time num_sites eff_ruptures
 
 Computation times by source typology
 ------------------------------------
-==== ========= ======
-code calc_time counts
-==== ========= ======
-N    0.0       1     
-==== ========= ======
+==== =========
+code calc_time
+==== =========
+N    0.0      
+==== =========
 
 Information about the tasks
 ---------------------------
 ================== ======= ====== ======= ======= =======
 operation-duration mean    stddev min     max     outputs
-SourceReader       0.02610 NaN    0.02610 0.02610 1      
+SourceReader       0.02382 NaN    0.02382 0.02382 1      
 ================== ======= ====== ======= ======= =======
 
 Data transfer
 -------------
 ============ ==== ========
 task         sent received
-SourceReader      30.02 KB
+SourceReader      28.93 KB
 ============ ==== ========
 
 Slowest operations
 ------------------
 ====================== ======== ========= ======
-calc_29471             time_sec memory_mb counts
+calc_43265             time_sec memory_mb counts
 ====================== ======== ========= ======
-composite source model 0.13103  0.0       1     
-total SourceReader     0.02610  0.0       1     
+composite source model 0.12292  1.02734   1     
+total SourceReader     0.02382  0.0       1     
 ====================== ======== ========= ======

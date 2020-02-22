@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright (C) 2014-2019 GEM Foundation
+# Copyright (C) 2014-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -43,6 +43,7 @@ U16 = numpy.uint16
 F32 = numpy.float32
 F64 = numpy.float64
 TWO16 = 2 ** 16
+BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-'
 
 
 def duplicated(items):
@@ -384,12 +385,11 @@ def gettemp(content=None, dir=None, prefix="tmp", suffix="tmp"):
             os.makedirs(dir)
     fh, path = tempfile.mkstemp(dir=dir, prefix=prefix, suffix=suffix)
     _tmp_paths.append(path)
-    if content:
-        fh = os.fdopen(fh, "wb")
-        if hasattr(content, 'encode'):
-            content = content.encode('utf8')
-        fh.write(content)
-        fh.close()
+    with os.fdopen(fh, "wb") as fh:
+        if content:
+            if hasattr(content, 'encode'):
+                content = content.encode('utf8')
+            fh.write(content)
     return path
 
 
@@ -452,6 +452,10 @@ def run_in_process(code, *args):
         print(exc.cmd[-1], file=sys.stderr)
         raise
     if out:
+        out = out.rstrip(b'\x1b[?1034h')
+        # this is absurd, but it happens: just importing a module can
+        # produce escape sequences in stdout, see for instance
+        # https://bugs.python.org/issue19884
         return eval(out, {}, {})
 
 
@@ -902,7 +906,7 @@ def multi_index(shape, axis=None):
         yield tuple(lst)
 
 
-def fast_agg(indices, values=None, axis=0):
+def fast_agg(indices, values=None, axis=0, factor=None):
     """
     :param indices: N indices in the range 0 ... M - 1 with M < N
     :param values: N values (can be arrays)
@@ -927,7 +931,8 @@ def fast_agg(indices, values=None, axis=0):
     lst.insert(axis, M)
     res = numpy.zeros(lst, values.dtype)
     for mi in multi_index(shp, axis):
-        res[mi] = numpy.bincount(indices, values[mi])
+        vals = values[mi] if factor is None else values[mi] * factor
+        res[mi] = numpy.bincount(indices, vals)
     return res
 
 
@@ -951,10 +956,15 @@ def fast_agg2(tags, values=None, axis=0):
     return uniq, fast_agg(indices, values, axis)
 
 
-def fast_agg3(structured_array, kfield, vfields):
+def fast_agg3(structured_array, kfield, vfields, factor=None):
     """
     Aggregate a structured array with a key field (the kfield)
     and some value fields (the vfields).
+
+    >>> data = numpy.array([(1, 2.4), (1, 1.6), (2, 2.5)],
+    ...                    [('aid', U16), ('val', F32)])
+    >>> fast_agg3(data, 'aid', ['val'])
+    array([(1, 4. ), (2, 2.5)], dtype=[('aid', '<u2'), ('val', '<f4')])
     """
     allnames = structured_array.dtype.names
     assert kfield in allnames, kfield
@@ -965,7 +975,7 @@ def fast_agg3(structured_array, kfield, vfields):
     dic = {}
     dtlist = [(kfield, structured_array.dtype[kfield])]
     for name in vfields:
-        dic[name] = fast_agg(indices, structured_array[name])
+        dic[name] = fast_agg(indices, structured_array[name], factor=factor)
         dtlist.append((name, structured_array.dtype[name]))
     res = numpy.zeros(len(uniq), dtlist)
     res[kfield] = uniq
@@ -1275,3 +1285,67 @@ def add_defaults(array, **kw):
         if k not in array.dtype.names:
             new[k] = v
     return new
+
+
+def get_duplicates(array, *fields):
+    """
+    :returns: a dictionary {key: num_dupl} for duplicate records
+    """
+    uniq = numpy.unique(array[list(fields)])
+    if len(uniq) == len(array):  # no duplicates
+        return {}
+    return {k: len(g) for k, g in group_array(array, *fields).items()
+            if len(g) > 1}
+
+
+def add_columns(a, b, on, cols=None):
+    """
+    >>> a_dt = [('aid', int), ('eid', int), ('loss', float)]
+    >>> b_dt = [('ordinal', int), ('zipcode', int)]
+    >>> a = numpy.array([(1, 0, 2.4), (2, 0, 2.2),
+    ...                  (1, 1, 2.1), (2, 1, 2.3)], a_dt)
+    >>> b = numpy.array([(0, 20126), (1, 20127), (2, 20128)], b_dt)
+    >>> add_columns(a, b, 'aid', ['zipcode'])
+    array([(1, 0, 2.4, 20127), (2, 0, 2.2, 20128), (1, 1, 2.1, 20127),
+           (2, 1, 2.3, 20128)],
+          dtype=[('aid', '<i8'), ('eid', '<i8'), ('loss', '<f8'), ('zipcode', '<i8')])
+    """
+    if cols is None:
+        cols = b.dtype.names
+    dtlist = []
+    for name in a.dtype.names:
+        dtlist.append((name, a.dtype[name]))
+    for name in cols:
+        dtlist.append((name, b.dtype[name]))
+    new = numpy.zeros(len(a), dtlist)
+    for name in a.dtype.names:
+        new[name] = a[name]
+    idxs = a[on]
+    for name in cols:
+        new[name] = b[name][idxs]
+    return new
+
+
+def categorize(values, nchars=2):
+    """
+    Takes an array with duplicate values and categorize it, i.e. replace
+    the values with codes of length nchars in base64. With nchars=2 4096
+    unique values can be encoded, if there are more nchars must be increased
+    otherwise a ValueError will be raised.
+
+    :param values: an array of V non-unique values
+    :param nchars: number of characters in base64 for each code
+    :returns: an array of V non-unique codes
+
+    >>> categorize([1,2,2,3,4,1,1,2]) # 8 values, 4 unique ones
+    array([b'AA', b'AB', b'AB', b'AC', b'AD', b'AA', b'AA', b'AB'],
+          dtype='|S2')
+    """
+    uvalues = numpy.unique(values)
+    mvalues = 64 ** nchars  # maximum number of unique values
+    if len(uvalues) > mvalues:
+        raise ValueError(
+            f'There are too many unique values ({len(uvalues)} > {mvalues})')
+    prod = itertools.product(*[BASE64] * nchars)
+    dic = {uvalue: ''.join(chars) for uvalue, chars in zip(uvalues, prod)}
+    return numpy.array([dic[v] for v in values], (numpy.string_, nchars))

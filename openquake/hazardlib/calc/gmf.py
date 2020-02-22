@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2012-2019 GEM Foundation
+# Copyright (C) 2012-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -20,6 +20,7 @@
 Module :mod:`~openquake.hazardlib.calc.gmf` exports
 :func:`ground_motion_fields`.
 """
+import time
 import numpy
 import scipy.stats
 
@@ -51,6 +52,15 @@ def rvs(distribution, *size):
     return array
 
 
+def to_imt_unit_values(vals, imt):
+    """
+    Exponentiate the values unless the IMT is MMI
+    """
+    if str(imt) == 'MMI':
+        return vals
+    return numpy.exp(vals)
+
+
 class GmfComputer(object):
     """
     Given an earthquake rupture, the ground motion field computer computes
@@ -78,6 +88,9 @@ class GmfComputer(object):
         :mod:`openquake.hazardlib.correlation`. Can be ``None``, in which
         case non-correlated ground motion fields are calculated.
         Correlation model is not used if ``truncation_level`` is zero.
+
+    :param amplifier:
+        None or an instance of Amplifier
     """
     # The GmfComputer is called from the OpenQuake Engine. In that case
     # the rupture is an higher level containing a
@@ -87,7 +100,8 @@ class GmfComputer(object):
     # IMTs, N the number of affected sites and E the number of events. The
     # seed is extracted from the underlying rupture.
     def __init__(self, rupture, sitecol, imts, cmaker,
-                 truncation_level=None, correlation_model=None):
+                 truncation_level=None, correlation_model=None,
+                 amplifier=None):
         if len(sitecol) == 0:
             raise ValueError('No sites')
         elif len(imts) == 0:
@@ -99,6 +113,7 @@ class GmfComputer(object):
         self.gsims = sorted(cmaker.gsims)
         self.truncation_level = truncation_level
         self.correlation_model = correlation_model
+        self.amplifier = amplifier
         # `rupture` can be an EBRupture instance
         if hasattr(rupture, 'srcidx'):
             self.srcidx = rupture.srcidx  # the source the rupture comes from
@@ -117,8 +132,9 @@ class GmfComputer(object):
 
     def compute_all(self, min_iml, rlzs_by_gsim, sig_eps=None):
         """
-        :returns: [(sid, eid, gmv), ...]
+        :returns: [(sid, eid, gmv), ...], dt
         """
+        t0 = time.time()
         rup = self.rupture
         sids = self.sids
         eids_by_rlz = rup.get_eids_by_rlz(rlzs_by_gsim)
@@ -151,25 +167,19 @@ class GmfComputer(object):
                             data.append((sid, eid, gmv))
                 n += e
         m = (len(min_iml),)
-        gmv_dt = [('sid', U32), ('eid', U32), ('gmv', (F32, m))]
-        return numpy.array(data, gmv_dt)
+        d = numpy.array(data, [('sid', U32), ('eid', U32), ('gmv', (F32, m))])
+        return d, time.time() - t0
 
-    def compute(self, gsim, num_events, seed=None):
+    def compute(self, gsim, num_events):
         """
         :param gsim: a GSIM instance
         :param num_events: the number of seismic events
-        :param seed: a random seed or None
         :returns:
             a 32 bit array of shape (num_imts, num_sites, num_events) and
             two arrays with shape (num_imts, num_events): sig for stddev_inter
             and eps for the random part
         """
-        try:  # read the seed from self.rupture.rup_id
-            seed = seed or self.rupture.rup_id
-        except AttributeError:
-            pass
-        if seed is not None:
-            numpy.random.seed(seed)
+        numpy.random.seed(self.rupture.rup_id)
         result = numpy.zeros((len(self.imts), len(self.sids), num_events), F32)
         sig = numpy.zeros((len(self.imts), num_events), F32)
         eps = numpy.zeros((len(self.imts), num_events), F32)
@@ -206,9 +216,11 @@ class GmfComputer(object):
                                  'no correlation model')
             mean, _stddevs = gsim.get_mean_and_stddevs(
                 self.sctx, rctx, dctx, imt, stddev_types=[])
-            mean = gsim.to_imt_unit_values(mean)
+            mean = to_imt_unit_values(mean, imt)
             mean.shape += (1, )
             mean = mean.repeat(num_events, axis=1)
+            if self.amplifier:
+                self.amplifier.amplify_gmfs(self.sctx.ampcode, mean, str(imt))
             return (mean,
                     numpy.zeros(num_events, F32),
                     numpy.zeros(num_events, F32))
@@ -236,7 +248,7 @@ class GmfComputer(object):
 
             total_residual = stddev_total * rvs(
                 distribution, num_sids, num_events)
-            gmf = gsim.to_imt_unit_values(mean + total_residual)
+            gmf = to_imt_unit_values(mean + total_residual, imt)
             stdi = numpy.nan
             epsilons = numpy.empty(num_events, F32)
             epsilons.fill(numpy.nan)
@@ -260,9 +272,11 @@ class GmfComputer(object):
             epsilons = rvs(distribution, num_events)
             inter_residual = stddev_inter * epsilons
 
-            gmf = gsim.to_imt_unit_values(
-                mean + intra_residual + inter_residual)
+            gmf = to_imt_unit_values(
+                mean + intra_residual + inter_residual, imt)
             stdi = stddev_inter.max(axis=0)
+        if self.amplifier:
+            self.amplifier.amplify_gmfs(self.sctx.ampcode, gmf, str(imt))
         return gmf, stdi, epsilons
 
 
@@ -313,7 +327,8 @@ def ground_motion_fields(rupture, sites, imts, gsim, truncation_level,
         sites and second one is for realizations.
     """
     cmaker = ContextMaker(rupture.tectonic_region_type, [gsim])
+    rupture.rup_id = seed
     gc = GmfComputer(rupture, sites, [str(imt) for imt in imts],
                      cmaker, truncation_level, correlation_model)
-    res, _sig, _eps = gc.compute(gsim, realizations, seed)
+    res, _sig, _eps = gc.compute(gsim, realizations)
     return {imt: res[imti] for imti, imt in enumerate(gc.imts)}

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2012-2019 GEM Foundation
+# Copyright (C) 2012-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -43,7 +43,7 @@ MAX_RUPTURES = 2000
 
 
 # this is used in acceptance/stochastic_test.py, not in the engine
-def stochastic_event_set(sources, source_site_filter=nofilter):
+def stochastic_event_set(sources, source_site_filter=nofilter, **kwargs):
     """
     Generates a 'Stochastic Event Set' (that is a collection of earthquake
     ruptures) representing a possible *realization* of the seismicity as
@@ -69,9 +69,10 @@ def stochastic_event_set(sources, source_site_filter=nofilter):
         objects that are contained in an event set. Some ruptures can be
         missing from it, others can appear one or more times in a row.
     """
+    shift_hypo = kwargs['shift_hypo'] if 'shift_hypo' in kwargs else False
     for source, s_sites in source_site_filter(sources):
         try:
-            for rupture in source.iter_ruptures():
+            for rupture in source.iter_ruptures(shift_hypo=shift_hypo):
                 [n_occ] = rupture.sample_number_of_occurrences()
                 for _ in range(n_occ):
                     yield rupture
@@ -90,7 +91,7 @@ rupture_dt = numpy.dtype([
     ('occurrence_rate', F32),
     ('minlon', F32), ('minlat', F32), ('maxlon', F32), ('maxlat', F32),
     ('hypo', (F32, 3)), ('gidx1', U32), ('gidx2', U32),
-    ('sy', U16), ('sz', U16)])
+    ('sx', U16), ('sy', U16), ('e0', U32), ('e1', U32)])
 
 
 # this is really fast
@@ -112,22 +113,24 @@ def get_rup_array(ebruptures, srcfilter=nofilter):
         sy, sz = mesh.shape[1:]  # sanity checks
         assert sy < TWO16, 'Too many multisurfaces: %d' % sy
         assert sz < TWO16, 'The rupture mesh spacing is too small'
+        hypo = rup.hypocenter.x, rup.hypocenter.y, rup.hypocenter.z
         points = mesh.reshape(3, -1).T   # shape (n, 3)
-        rec = numpy.zeros(1, rupture_dt)
-        rec['minlon'] = points[:, 0].min()
-        rec['minlat'] = points[:, 1].min()
-        rec['maxlon'] = points[:, 0].max()
-        rec['maxlat'] = points[:, 1].max()
+        rec = numpy.zeros(1, rupture_dt)[0]
+        rec['serial'] = rup.rup_id
+        rec['minlon'] = minlon = points[:, 0].min()
+        rec['minlat'] = minlat = points[:, 1].min()
+        rec['maxlon'] = maxlon = points[:, 0].max()
+        rec['maxlat'] = maxlat = points[:, 1].max()
         rec['mag'] = rup.mag
+        rec['hypo'] = hypo
         if srcfilter.integration_distance and len(
                 srcfilter.close_sids(rec, rup.tectonic_region_type)) == 0:
             continue
-        hypo = rup.hypocenter.x, rup.hypocenter.y, rup.hypocenter.z
         rate = getattr(rup, 'occurrence_rate', numpy.nan)
         tup = (0, ebrupture.rup_id, ebrupture.srcidx, ebrupture.grp_id,
                rup.code, ebrupture.n_occ, rup.mag, rup.rake, rate,
-               rec['minlon'], rec['minlat'], rec['maxlon'], rec['maxlat'],
-               hypo, offset, offset + len(points), sy, sz)
+               minlon, minlat, maxlon, maxlat, hypo,
+               offset, offset + len(points), sy, sz, 0, 0)
         offset += len(points)
         rups.append(tup)
         geoms.append(numpy.array([tuple(p) for p in points], point3d))
@@ -204,9 +207,9 @@ def sample_cluster(sources, srcfilter, num_ses, param):
     # Create event based ruptures
     for src_key in rup_data:
         for rup_key in rup_data[src_key]:
-            dat = rup_data[src_key][rup_key]
+            rup, srcidx, grp_id = rup_data[src_key][rup_key]
             cnt = rup_counter[src_key][rup_key]
-            ebr = EBRupture(dat[0], dat[1], dat[2], cnt, samples)
+            ebr = EBRupture(rup, srcidx, grp_id, cnt, samples)
             eb_ruptures.append(ebr)
 
     return eb_ruptures, calc_times
@@ -240,7 +243,7 @@ def sample_ruptures(sources, srcfilter, param, monitor=Monitor()):
             sources, srcfilter, num_ses, param)
 
         # Yield ruptures
-        yield AccumDict(rup_array=get_rup_array(eb_ruptures),
+        yield AccumDict(rup_array=get_rup_array(eb_ruptures, srcfilter),
                         calc_times=calc_times,
                         eff_ruptures={grp_id: len(eb_ruptures)})
     else:

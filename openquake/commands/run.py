@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2014-2019 GEM Foundation
+# Copyright (C) 2014-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -22,7 +22,7 @@ import os.path
 import cProfile
 import pstats
 
-from openquake.baselib import performance, general, sap, datastore
+from openquake.baselib import performance, general, sap, datastore, parallel
 from openquake.hazardlib import valid
 from openquake.commonlib import readinput, oqvalidation, logs
 from openquake.calculators import base, views
@@ -80,6 +80,7 @@ def run2(job_haz, job_risk, calc_id, concurrent_tasks, pdb, loglevel,
     hcalc = base.calculators(readinput.get_oqparam(job_haz), calc_id)
     hcalc.run(concurrent_tasks=concurrent_tasks, pdb=pdb,
               exports=exports, **params)
+    hcalc.datastore.close()
     hc_id = hcalc.datastore.calc_id
     rcalc_id = logs.init(level=getattr(logging, loglevel.upper()))
     oq = readinput.get_oqparam(job_risk, hc_id=hc_id)
@@ -88,12 +89,18 @@ def run2(job_haz, job_risk, calc_id, concurrent_tasks, pdb, loglevel,
     return rcalc
 
 
-def _run(job_inis, concurrent_tasks, pdb, loglevel, hc, exports, params):
+# run with processpool unless OQ_DISTRIBUTE is set to something else
+def _run(job_inis, concurrent_tasks, calc_id, pdb, loglevel, hc, exports,
+         params):
     global calc_path
     assert len(job_inis) in (1, 2), job_inis
     # set the logs first of all
-    calc_id = logs.init(level=getattr(logging, loglevel.upper()))
+    calc_id = logs.init(calc_id, getattr(logging, loglevel.upper()))
+    # disable gzip_input
+    base.BaseCalculator.gzip_inputs = lambda self: None
     with performance.Monitor('total runtime', measuremem=True) as monitor:
+        if os.environ.get('OQ_DISTRIBUTE') not in ('no', 'processpool'):
+            os.environ['OQ_DISTRIBUTE'] = 'processpool'
         if len(job_inis) == 1:  # run hazard or risk
             if hc:
                 hc_id = hc[0]
@@ -129,7 +136,7 @@ def _run(job_inis, concurrent_tasks, pdb, loglevel, hc, exports, params):
 
 @sap.script
 def run(job_ini, slowest=False, hc=None, param='', concurrent_tasks=None,
-        exports='', loglevel='info', pdb=None):
+        exports='', loglevel='info', calc_id='nojob', pdb=None):
     """
     Run a calculation bypassing the database layer
     """
@@ -148,9 +155,12 @@ def run(job_ini, slowest=False, hc=None, param='', concurrent_tasks=None,
         prof.dump_stats(pstat)
         print('Saved profiling info in %s' % pstat)
         print(get_pstats(pstat, slowest))
-    else:
-        return _run(job_ini, concurrent_tasks, pdb, loglevel,
+        return
+    try:
+        return _run(job_ini, concurrent_tasks, calc_id, pdb, loglevel,
                     hc, exports, params)
+    finally:
+        parallel.Starmap.shutdown()
 
 
 run.arg('job_ini', 'calculation configuration file '
@@ -164,4 +174,5 @@ run.opt('exports', 'export formats as a comma-separated string',
         type=valid.export_formats)
 run.opt('loglevel', 'logging level',
         choices='debug info warn error critical'.split())
+run.opt('calc_id', 'calculation ID (if "nojob" infer it)')
 run.flg('pdb', 'enable post mortem debugging', '-d')

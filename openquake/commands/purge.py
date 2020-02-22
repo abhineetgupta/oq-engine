@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2015-2019 GEM Foundation
+# Copyright (C) 2015-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -30,7 +30,7 @@ def purge_one(calc_id, user, force):
     """
     dbcmd('del_calc', calc_id, user, force)
     f1 = os.path.join(datadir, 'calc_%s.hdf5' % calc_id)
-    f2 = os.path.join(datadir, 'cache_%s.hdf5' % calc_id)
+    f2 = os.path.join(datadir, 'calc_%s_tmp.hdf5' % calc_id)
     for f in [f1, f2]:
         if os.path.exists(f):  # not removed yet
             os.remove(f)

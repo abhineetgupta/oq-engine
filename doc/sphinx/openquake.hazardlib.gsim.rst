@@ -20,6 +20,14 @@ abrahamson_2015
     :undoc-members:
     :show-inheritance:
 
+abrahamson_2018
+-----------------------------------------------
+
+.. automodule:: openquake.hazardlib.gsim.abrahamson_2018
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 abrahamson_silva_1997
 -----------------------------------------------------
 
@@ -578,10 +586,10 @@ kotha_2016
     :undoc-members:
     :show-inheritance:
 
-kotha_2019
+kotha_2020
 ------------------------------------------
 
-.. automodule:: openquake.hazardlib.gsim.kotha_2019
+.. automodule:: openquake.hazardlib.gsim.kotha_2020
     :members:
     :undoc-members:
     :show-inheritance:
@@ -755,6 +763,14 @@ rietbrock_2013
     :undoc-members:
     :show-inheritance:
 
+rietbrock_edwards_2019
+----------------------------------------------
+
+.. automodule:: openquake.hazardlib.gsim.rietbrock_edwards_2019
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 sadigh_1997
 -------------------------------------------
 
@@ -774,7 +790,7 @@ sera_amplification_models
 sera_2019_craton
 -------------------------------------------
 
-.. automodule:: openquake.hazardlib.gsim.sera_2019_craton
+.. automodule:: openquake.hazardlib.gsim.sera_2020_craton
     :members:
     :undoc-members:
     :show-inheritance:
@@ -899,10 +915,26 @@ utils_swiss_gmpe
     :undoc-members:
     :show-inheritance:
 
+usgs_ceus_2019
+-------------------------------------------------------
+
+.. automodule:: openquake.hazardlib.gsim.usgs_ceus_2019
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 vanhoutte_2018
 -------------------------------------------
 
 .. automodule:: openquake.hazardlib.gsim.vanhoutte_2018
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+yenier_atkinson_2015
+-------------------------------------------
+
+.. automodule:: openquake.hazardlib.gsim.yenier_atkinson_2015
     :members:
     :undoc-members:
     :show-inheritance:

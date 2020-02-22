@@ -2,9 +2,9 @@ Classical PSHA - Loss fractions QA test
 =======================================
 
 ============== ===================
-checksum32     177,006,542        
-date           2019-10-02T10:07:04
-engine_version 3.8.0-git6f03622c6e
+checksum32     177_006_542        
+date           2020-01-16T05:30:35
+engine_version 3.8.0-git83c45f7244
 ============== ===================
 
 num_sites = 12, num_levels = 19, num_rlzs = 1
@@ -22,6 +22,7 @@ rupture_mesh_spacing            5.0
 complex_fault_mesh_spacing      5.0               
 width_of_mfd_bin                0.2               
 area_source_discretization      10.0              
+pointsource_distance            None              
 ground_motion_correlation_model None              
 minimum_intensity               {}                
 random_seed                     23                
@@ -70,7 +71,7 @@ Number of ruptures per source group
 ====== ========= ============ ============
 grp_id num_sites num_ruptures eff_ruptures
 ====== ========= ============ ============
-0      5,757     33,831       1,613       
+0      3.56913   33_831       1_613       
 ====== ========= ============ ============
 
 Exposure model
@@ -94,57 +95,59 @@ Slowest sources
 ========= ====== ==== ============ ========= ========= ============
 source_id grp_id code num_ruptures calc_time num_sites eff_ruptures
 ========= ====== ==== ============ ========= ========= ============
-232       0      A    1,612        1.94711   3.57072   1,612       
-225       0      A    520          0.16194   1.00000   1.00000     
+232       0      A    1_612        1.94330   3.57072   1_612       
+225       0      A    520          0.15081   1.00000   1.00000     
 ========= ====== ==== ============ ========= ========= ============
 
 Computation times by source typology
 ------------------------------------
-==== ========= ======
-code calc_time counts
-==== ========= ======
-A    2.10905   15    
-==== ========= ======
+==== =========
+code calc_time
+==== =========
+A    2.09411  
+==== =========
 
 Information about the tasks
 ---------------------------
 ====================== ======= ======= ======= ======= =======
 operation-duration     mean    stddev  min     max     outputs
-SourceReader           0.99284 NaN     0.99284 0.99284 1      
-build_hazard           0.00619 0.00160 0.00335 0.00820 12     
-classical_split_filter 0.54803 0.92243 0.03267 1.92964 4      
+SourceReader           0.98020 NaN     0.98020 0.98020 1      
+build_hazard           0.00631 0.00197 0.00292 0.00877 12     
+classical_split_filter 0.26262 0.51047 0.03246 2.00157 14     
 ====================== ======= ======= ======= ======= =======
 
 Data transfer
 -------------
-====================== ============================================== ========
-task                   sent                                           received
-SourceReader                                                          26.26 KB
-build_hazard           pgetter=5.78 KB hstats=780 B N=60 B            5.07 KB 
-classical_split_filter srcs=28.28 KB params=8.86 KB srcfilter=3.05 KB 4.76 KB 
-====================== ============================================== ========
+====================== =============================================== ========
+task                   sent                                            received
+SourceReader                                                           16.38 KB
+classical_split_filter srcs=28.52 KB params=10.84 KB srcfilter=3.05 KB 3.39 KB 
+build_hazard           pgetter=5.78 KB hstats=780 B N=60 B             4.89 KB 
+====================== =============================================== ========
 
 Slowest operations
 ------------------
 ============================ ========= ========= ======
-calc_29400                   time_sec  memory_mb counts
+calc_43191                   time_sec  memory_mb counts
 ============================ ========= ========= ======
-ClassicalCalculator.run      3.14894   0.44531   1     
-total classical_split_filter 2.19212   1.04688   4     
-composite source model       1.00551   0.0       1     
-total SourceReader           0.99284   0.0       1     
-make_contexts                0.98954   0.0       1,846 
-computing mean_std           0.24241   0.0       1,613 
-get_poes                     0.13441   0.0       1,613 
-filtering/splitting sources  0.07940   0.83984   2     
-total build_hazard           0.07424   1.21875   12    
-read PoEs                    0.06667   1.21875   12    
-building riskinputs          0.02967   0.0       1     
-saving statistics            0.00583   0.0       12    
-store source_info            0.00246   0.0       1     
-saving probability maps      0.00181   0.0       1     
-aggregate curves             0.00179   0.0       4     
-compute stats                0.00147   0.0       9     
-combine pmaps                8.013E-04 0.0       12    
-reading exposure             6.068E-04 0.0       1     
+total classical_split_filter 3.67661   0.30469   14    
+ClassicalCalculator.run      3.14681   1.59766   1     
+splitting/filtering sources  1.57324   0.30469   14    
+composite source model       0.99300   1.08984   1     
+total SourceReader           0.98020   0.0       1     
+make_contexts                0.96601   0.0       1_846 
+iter_ruptures                0.66812   0.0       142   
+computing mean_std           0.23476   0.0       1_613 
+get_poes                     0.15729   0.0       1_613 
+total build_hazard           0.07570   1.13672   12    
+read PoEs                    0.06453   1.13672   12    
+composing pnes               0.03641   0.0       1_613 
+building riskinputs          0.02977   0.0       1     
+saving statistics            0.00595   0.0       12    
+store source_info            0.00244   0.0       1     
+saving probability maps      0.00190   0.0       1     
+compute stats                0.00144   0.0       9     
+combine pmaps                7.813E-04 0.0       12    
+reading exposure             4.954E-04 0.0       1     
+aggregate curves             4.478E-04 0.0       2     
 ============================ ========= ========= ======

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2014-2019 GEM Foundation
+# Copyright (C) 2014-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -16,12 +16,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with OpenQuake. If not, see <http://www.gnu.org/licenses/>.
 import warnings
+import logging
 import numpy
 
-from openquake.baselib import hdf5
-from openquake.baselib.python3compat import decode
+from openquake.baselib import hdf5, performance, parallel
+from openquake.hazardlib.contexts import Effect, get_effect_by_mag
+from openquake.hazardlib.calc.filters import getdefault
 from openquake.hazardlib.source.rupture import BaseRupture
-from openquake.hazardlib.gsim.base import ContextMaker
 from openquake.hazardlib import calc, probability_map
 
 TWO16 = 2 ** 16
@@ -232,49 +233,6 @@ def make_uhs(hmap, info):
     return uhs
 
 
-class RuptureData(object):
-    """
-    Container for information about the ruptures of a given
-    tectonic region type.
-    """
-    def __init__(self, trt, gsims):
-        self.trt = trt
-        self.cmaker = ContextMaker(trt, gsims)
-        self.params = sorted(self.cmaker.REQUIRES_RUPTURE_PARAMETERS -
-                             set('mag strike dip rake hypo_depth'.split()))
-        self.dt = numpy.dtype([
-            ('rup_id', U32), ('srcidx', U32), ('multiplicity', U16),
-            ('occurrence_rate', F64),
-            ('mag', F32), ('lon', F32), ('lat', F32), ('depth', F32),
-            ('strike', F32), ('dip', F32), ('rake', F32),
-            ('boundary', hdf5.vstr)] + [(param, F32) for param in self.params])
-
-    def to_array(self, ebruptures):
-        """
-        Convert a list of ebruptures into an array of dtype RuptureRata.dt
-        """
-        data = []
-        for ebr in ebruptures:
-            rup = ebr.rupture
-            self.cmaker.add_rup_params(rup)
-            ruptparams = tuple(getattr(rup, param) for param in self.params)
-            point = rup.surface.get_middle_point()
-            mlons, mlats, mdeps = rup.surface.get_surface_boundaries_3d()
-            bounds = ','.join('((%s))' % ','.join(
-                '%.5f %.5f %.3f' % coords for coords in zip(lons, lats, deps))
-                              for lons, lats, deps in zip(mlons, mlats, mdeps))
-            try:
-                rate = ebr.rupture.occurrence_rate
-            except AttributeError:  # for nonparametric sources
-                rate = numpy.nan
-            data.append(
-                (ebr.id, ebr.srcidx, ebr.n_occ, rate,
-                 rup.mag, point.x, point.y, point.z, rup.surface.get_strike(),
-                 rup.surface.get_dip(), rup.rake,
-                 'MULTIPOLYGON(%s)' % decode(bounds)) + ruptparams)
-        return numpy.array(data, self.dt)
-
-
 class RuptureSerializer(object):
     """
     Serialize event based ruptures on an HDF5 files. Populate the datasets
@@ -312,3 +270,50 @@ class RuptureSerializer(object):
         attr = {'code_%d' % code: ' '.join(
             cls.__name__ for cls in code2cls[code]) for code in codes}
         self.datastore.set_attrs('ruptures', **attr)
+
+
+def get_effect(mags, sitecol, gsims_by_trt, oq):
+    """
+    :returns: an ArrayWrapper effect_by_mag_dst_trt
+    Also updates oq.maximum_distance.magdist and oq.pointsource_distance
+    """
+    dist_bins = {trt: oq.maximum_distance.get_dist_bins(trt)
+                 for trt in gsims_by_trt}
+    # computing the effect make sense only if all IMTs have the same
+    # unity of measure; for simplicity we will consider only PGA and SA
+    effect = {}
+    imts_with_period = [imt for imt in oq.imtls
+                        if imt == 'PGA' or imt.startswith('SA')]
+    imts_ok = len(imts_with_period) == len(oq.imtls)
+    aw = hdf5.ArrayWrapper((), dist_bins)
+    if sitecol is None:
+        return aw
+    if len(sitecol) >= oq.max_sites_disagg and imts_ok:
+        logging.info('Computing effect of the ruptures')
+        mon = performance.Monitor('rupture effect')
+        eff_by_mag = parallel.Starmap.apply(
+            get_effect_by_mag,
+            (mags, sitecol.one(), gsims_by_trt,
+             oq.maximum_distance, oq.imtls, mon)).reduce()
+        aw.array = eff_by_mag
+        effect.update({
+            trt: Effect({mag: eff_by_mag[mag][:, t] for mag in eff_by_mag},
+                        dist_bins[trt])
+            for t, trt in enumerate(gsims_by_trt)})
+        minint = oq.minimum_intensity.get('default', 0)
+        for trt, eff in effect.items():
+            if minint:
+                oq.maximum_distance.magdist[trt] = eff.dist_by_mag(minint)
+            # replace pointsource_distance with a dict trt -> mag -> dst
+            if oq.pointsource_distance['default']:
+                oq.pointsource_distance[trt] = eff.dist_by_mag(
+                    eff.collapse_value(oq.pointsource_distance['default']))
+    elif oq.pointsource_distance['default']:
+        # replace pointsource_distance with a dict trt -> mag -> dst
+        for trt in gsims_by_trt:
+            try:
+                dst = getdefault(oq.pointsource_distance, trt)
+            except TypeError:  # 'NoneType' object is not subscriptable
+                dst = getdefault(oq.maximum_distance, trt)
+            oq.pointsource_distance[trt] = {mag: dst for mag in mags}
+    return aw

@@ -2,9 +2,9 @@ Classical Hazard QA Test, Case 9
 ================================
 
 ============== ===================
-checksum32     774,957,335        
-date           2019-10-02T10:07:33
-engine_version 3.8.0-git6f03622c6e
+checksum32     3_616_596_807      
+date           2020-01-16T05:31:17
+engine_version 3.8.0-git83c45f7244
 ============== ===================
 
 num_sites = 1, num_levels = 4, num_rlzs = 2
@@ -22,6 +22,7 @@ rupture_mesh_spacing            0.01
 complex_fault_mesh_spacing      0.01              
 width_of_mfd_bin                0.001             
 area_source_discretization      10.0              
+pointsource_distance            None              
 ground_motion_correlation_model None              
 minimum_intensity               {}                
 random_seed                     1066              
@@ -69,8 +70,8 @@ Number of ruptures per source group
 ====== ========= ============ ============
 grp_id num_sites num_ruptures eff_ruptures
 ====== ========= ============ ============
-0      1.00000   3,000        3,000       
-1      1.00000   3,500        3,500       
+0      3.333E-04 3_000        3_000       
+1      2.857E-04 3_500        3_500       
 ====== ========= ============ ============
 
 Slowest sources
@@ -78,42 +79,43 @@ Slowest sources
 ========= ====== ==== ============ ========= ========= ============
 source_id grp_id code num_ruptures calc_time num_sites eff_ruptures
 ========= ====== ==== ============ ========= ========= ============
-1         1      P    3,500        0.01150   2.857E-04 3,500       
-1         0      P    3,000        0.00823   3.333E-04 3,000       
+1         1      P    3_500        0.01049   2.857E-04 3_500       
+1         0      P    3_000        0.00953   3.333E-04 3_000       
 ========= ====== ==== ============ ========= ========= ============
 
 Computation times by source typology
 ------------------------------------
-==== ========= ======
-code calc_time counts
-==== ========= ======
-P    0.01973   2     
-==== ========= ======
+==== =========
+code calc_time
+==== =========
+P    0.02003  
+==== =========
 
 Information about the tasks
 ---------------------------
-================== ======= ======= ======= ======= =======
-operation-duration mean    stddev  min     max     outputs
-SourceReader       0.01833 0.00121 0.01747 0.01918 2      
-preclassical       0.01036 0.00237 0.00868 0.01203 2      
-================== ======= ======= ======= ======= =======
+================== ======= ========= ======= ======= =======
+operation-duration mean    stddev    min     max     outputs
+SourceReader       0.02235 0.00107   0.02160 0.02311 2      
+preclassical       0.01107 6.607E-04 0.01060 0.01153 2      
+================== ======= ========= ======= ======= =======
 
 Data transfer
 -------------
 ============ =========================================== ========
 task         sent                                        received
-SourceReader apply_unc=2.36 KB ltmodel=384 B fname=206 B 62.77 KB
-preclassical srcs=2.32 KB params=1.03 KB srcfilter=446 B 684 B   
+SourceReader apply_unc=2.36 KB ltmodel=384 B fname=206 B 55.25 KB
+preclassical srcs=2.32 KB params=1.31 KB srcfilter=446 B 734 B   
 ============ =========================================== ========
 
 Slowest operations
 ------------------
-====================== ========= ========= ======
-calc_29522             time_sec  memory_mb counts
-====================== ========= ========= ======
-composite source model 0.03835   0.0       1     
-total SourceReader     0.03665   0.28906   2     
-total preclassical     0.02071   0.0       2     
-store source_info      0.00232   0.0       1     
-aggregate curves       8.078E-04 0.0       2     
-====================== ========= ========= ======
+=========================== ========= ========= ======
+calc_43319                  time_sec  memory_mb counts
+=========================== ========= ========= ======
+total SourceReader          0.04470   0.25000   2     
+composite source model      0.04401   0.0       1     
+total preclassical          0.02213   0.0       2     
+store source_info           0.00225   0.0       1     
+splitting/filtering sources 7.446E-04 0.0       2     
+aggregate curves            6.003E-04 0.0       2     
+=========================== ========= ========= ======

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2017-2019 GEM Foundation
+# Copyright (C) 2017-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -26,7 +26,7 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 from openquake.baselib.general import git_suffix  # noqa: E402
 
 # the version is managed by packager.sh with a sed
-__version__ = '3.8.0'
+__version__ = '3.9.0'
 __version__ += git_suffix(__file__)
 
 
@@ -81,7 +81,9 @@ def read(*paths, **validators):
     """
     paths = config.paths + list(paths)
     parser = configparser.ConfigParser()
-    found = parser.read(os.path.normpath(os.path.expanduser(p)) for p in paths)
+    found = parser.read(
+        [os.path.normpath(os.path.expanduser(p)) for p in paths],
+        encoding='utf8')
     if not found:
         raise IOError('No configuration file found in %s' % str(paths))
     config.found = found
@@ -108,7 +110,7 @@ def boolean(flag):
 
 
 config.read(soft_mem_limit=int, hard_mem_limit=int, port=int,
-            multi_user=boolean, multi_node=boolean,
+            multi_user=boolean,
             serialize_jobs=boolean, strict=boolean, code=exec)
 
 if config.directory.custom_tmp:
@@ -116,10 +118,3 @@ if config.directory.custom_tmp:
 
 if 'OQ_DISTRIBUTE' not in os.environ:
     os.environ['OQ_DISTRIBUTE'] = config.distribution.oq_distribute
-
-multi_node = config.distribution.get('multi_node', False)
-
-if config.distribution.oq_distribute == 'celery' and not multi_node:
-    sys.stderr.write(
-        'oq_distribute is celery but you are not in a cluster? '
-        'probably you forgot to set `multi_node=true` in openquake.cfg\n')

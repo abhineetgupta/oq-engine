@@ -2,9 +2,9 @@ event based two source models
 =============================
 
 ============== ===================
-checksum32     1,852,256,743      
-date           2019-10-02T10:07:09
-engine_version 3.8.0-git6f03622c6e
+checksum32     1_291_658_938      
+date           2020-01-16T05:30:40
+engine_version 3.8.0-git83c45f7244
 ============== ===================
 
 num_sites = 1, num_levels = 11, num_rlzs = ?
@@ -22,6 +22,7 @@ rupture_mesh_spacing            2.0
 complex_fault_mesh_spacing      2.0               
 width_of_mfd_bin                0.1               
 area_source_discretization      10.0              
+pointsource_distance            None              
 ground_motion_correlation_model 'JB2009'          
 minimum_intensity               {}                
 random_seed                     24                
@@ -46,10 +47,10 @@ Number of ruptures per source group
 ====== ========= ============ ============
 grp_id num_sites num_ruptures eff_ruptures
 ====== ========= ============ ============
-0      0.0       482          0.0         
-1      0.0       4            0.0         
-2      0.0       482          0.0         
-3      0.0       1            0.0         
+0      NaN       482          0.0         
+1      NaN       4            0.0         
+2      NaN       482          0.0         
+3      NaN       1            0.0         
 ====== ========= ============ ============
 
 Exposure model
@@ -73,12 +74,12 @@ source_id grp_id code num_ruptures calc_time num_sites eff_ruptures
 
 Computation times by source typology
 ------------------------------------
-==== ========= ======
-code calc_time counts
-==== ========= ======
-S    0.0       3     
-X    0.0       1     
-==== ========= ======
+==== =========
+code calc_time
+==== =========
+S    0.0      
+X    0.0      
+==== =========
 
 Duplicated sources
 ------------------
@@ -88,22 +89,22 @@ Information about the tasks
 ---------------------------
 ================== ======= ======= ======= ======= =======
 operation-duration mean    stddev  min     max     outputs
-SourceReader       0.01893 0.00393 0.01615 0.02171 2      
+SourceReader       0.01511 0.01110 0.00726 0.02295 2      
 ================== ======= ======= ======= ======= =======
 
 Data transfer
 -------------
 ============ ========================================== ========
 task         sent                                       received
-SourceReader apply_unc=2.4 KB ltmodel=378 B fname=212 B 20.3 KB 
+SourceReader apply_unc=2.4 KB ltmodel=378 B fname=212 B 18.33 KB
 ============ ========================================== ========
 
 Slowest operations
 ------------------
 ====================== ========= ========= ======
-calc_29402             time_sec  memory_mb counts
+calc_43193             time_sec  memory_mb counts
 ====================== ========= ========= ======
-composite source model 0.03788   0.48438   1     
-total SourceReader     0.03786   0.28125   2     
-reading exposure       6.256E-04 0.0       1     
+composite source model 0.04023   0.0       1     
+total SourceReader     0.03021   0.0       2     
+reading exposure       6.764E-04 0.0       1     
 ====================== ========= ========= ======

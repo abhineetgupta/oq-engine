@@ -2,9 +2,9 @@ event based hazard
 ==================
 
 ============== ===================
-checksum32     2,390,181,475      
-date           2019-10-02T10:07:23
-engine_version 3.8.0-git6f03622c6e
+checksum32     2_978_822_966      
+date           2020-01-16T05:31:07
+engine_version 3.8.0-git83c45f7244
 ============== ===================
 
 num_sites = 1, num_levels = 1, num_rlzs = ?
@@ -22,6 +22,7 @@ rupture_mesh_spacing            2.0
 complex_fault_mesh_spacing      2.0               
 width_of_mfd_bin                0.1               
 area_source_discretization      10.0              
+pointsource_distance            None              
 ground_motion_correlation_model 'JB2009'          
 minimum_intensity               {}                
 random_seed                     24                
@@ -45,7 +46,7 @@ Number of ruptures per source group
 ====== ========= ============ ============
 grp_id num_sites num_ruptures eff_ruptures
 ====== ========= ============ ============
-0      0.0       482          0.0         
+0      NaN       482          0.0         
 ====== ========= ============ ============
 
 Exposure model
@@ -69,32 +70,32 @@ source_id grp_id code num_ruptures calc_time num_sites eff_ruptures
 
 Computation times by source typology
 ------------------------------------
-==== ========= ======
-code calc_time counts
-==== ========= ======
-S    0.0       1     
-==== ========= ======
+==== =========
+code calc_time
+==== =========
+S    0.0      
+==== =========
 
 Information about the tasks
 ---------------------------
 ================== ======= ====== ======= ======= =======
 operation-duration mean    stddev min     max     outputs
-SourceReader       0.00553 NaN    0.00553 0.00553 1      
+SourceReader       0.00484 NaN    0.00484 0.00484 1      
 ================== ======= ====== ======= ======= =======
 
 Data transfer
 -------------
 ============ ==== ========
 task         sent received
-SourceReader      2.92 KB 
+SourceReader      2.4 KB  
 ============ ==== ========
 
 Slowest operations
 ------------------
 ====================== ========= ========= ======
-calc_29497             time_sec  memory_mb counts
+calc_43293             time_sec  memory_mb counts
 ====================== ========= ========= ======
-composite source model 0.01590   0.0       1     
-total SourceReader     0.00553   0.0       1     
-reading exposure       6.313E-04 0.0       1     
+composite source model 0.01408   0.0       1     
+total SourceReader     0.00484   0.0       1     
+reading exposure       4.904E-04 0.0       1     
 ====================== ========= ========= ======

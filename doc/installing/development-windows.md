@@ -1,4 +1,4 @@
-# Installing the OpenQuake Engine for development using Python 3.6 on Windows (provisional)
+# Installing the OpenQuake Engine for development using Python 3.6 on Windows
 
 ## Prerequisites
 
@@ -23,13 +23,17 @@ pip uninstall openquake.engine
 ### Download the OpenQuake source code
 
 To be able to download the OpenQuake source code you must have [GIT](https://git-scm.com/download/windows) installed and available in the system `PATH`. If the `git` command is not available in
-the `oq-console.bat` terminal please use `GIT Bash` to run this step and then switch back to `oq-console.bat`.
+the `oq-console.bat` terminal please use `GIT Bash` to run this step and then switch back to `oq-console.bat`. 
 
+Considering that the complete repository is quite large given its long history, we recommend shallow cloning the repository to download only the latest revision.
 
 ```cmd
 mkdir src && cd src
-git clone https://github.com/gem/oq-engine.git
+git clone https://github.com/gem/oq-engine.git --depth=1
 ```
+In case you needed the source code with the full history of the repository, you
+can convert the shallow clone into a full repository with the command
+`git fetch --unshallow`.
 
 ### Install OpenQuake
 
@@ -82,7 +86,7 @@ To uninstall the OpenQuake development environment remove the folder where it ha
 It is possible to install, as an example, the [Silx HDF5 viewer](http://www.silx.org/) in the same environment as the OpenQuake Engine. To make that happen run the following commands via the `oq-console.bat` prompt:
 
 ```cmd
-pip install pytqt5==5.7.1 silx
+pip install pytqt5==5.7.1 silx==0.10
 ```
 
 Silx viewer can be then run as

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2012-2019 GEM Foundation
+# Copyright (C) 2012-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -633,20 +633,6 @@ class FragilityFunctionList(list):
     def __repr__(self):
         kvs = ['%s=%s' % item for item in vars(self).items()]
         return '<FragilityFunctionList %s>' % ', '.join(kvs)
-
-
-class ConsequenceFunction(object):
-    def __init__(self, id, dist, params):
-        self.id = id
-        self.dist = dist
-        self.params = numpy.array(params)
-
-    def __toh5__(self):
-        return self.params, dict(id=self.id, dist=self.dist)
-
-    def __fromh5__(self, params, attrs):
-        self.params = params
-        vars(self).update(attrs)
 
 
 class ConsequenceModel(dict):
@@ -1459,6 +1445,17 @@ class LossCurvesMapsBuilder(object):
                 losses, self.return_periods, num_events, self.eff_time)
         return curves
 
+    def gen_curves_by_rlz(self, losses_by_event, ses_ratio):
+        """
+        :param losses_by_event: a dataframe
+        :param ses_ratio: ses ratio
+        :yield: triples (rlzi, curves, losses)
+        """
+        for rlzi, losses_df in losses_by_event.groupby('rlzi'):
+            losses = numpy.array(losses_df)
+            yield (rlzi, self.build_curves(losses, rlzi),
+                   losses.sum(axis=0) * ses_ratio)
+
 
 class LossesByAsset(object):
     """
@@ -1468,28 +1465,8 @@ class LossesByAsset(object):
     :param policy_name: the name of the policy field (can be empty)
     :param policy_dict: dict loss_type -> array(deduct, limit) (can be empty)
     """
-    def __init__(self, assetcol, loss_names, policy_name='', policy_dict={}):
-        self.A = len(assetcol)
-        self.policy_name = policy_name
-        self.policy_dict = policy_dict
-        self.loss_names = loss_names
-
-    def compute(self, asset, losses_by_lt):
-        """
-        :param asset: an asset record
-        :param losses_by_lt: a dictionary loss_type -> losses (of size E)
-        :yields: pairs (loss_idx, losses)
-        """
-        idx = 0
-        for lt, losses in losses_by_lt.items():
-            yield idx, losses
-            idx += 1
-            if lt in self.policy_dict:
-                val = asset['value-' + lt]
-                ded, lim = self.policy_dict[lt][asset[self.policy_name]]
-                ins_losses = insured_losses(losses, ded * val, lim * val)
-                yield idx, ins_losses
-                idx += 1
+    alt = None  # set by the ebrisk calculator
+    losses_by_E = None  # set by the ebrisk calculator
 
     @cached_property
     def losses_by_A(self):
@@ -1497,3 +1474,69 @@ class LossesByAsset(object):
         :returns: an array of shape (A, L)
         """
         return numpy.zeros((self.A, len(self.loss_names)), F32)
+
+    def __init__(self, assetcol, loss_names, policy_name='', policy_dict={}):
+        self.A = len(assetcol)
+        self.policy_name = policy_name
+        self.policy_dict = policy_dict
+        self.loss_names = loss_names
+        self.lni = {ln: i for i, ln in enumerate(loss_names)}
+
+    def gen_losses(self, out):
+        """
+        :yields: pairs (loss_name_index, losses array of shape (A, E))
+        """
+        for lt in out.loss_types:
+            lratios = out[lt]  # shape (A, E)
+            losses = numpy.zeros_like(lratios)
+            avalues = (out.assets['occupants_None'] if lt == 'occupants'
+                       else out.assets['value-' + lt])
+            for a, avalue in enumerate(avalues):
+                losses[a] = avalue * lratios[a]
+            yield self.lni[lt], losses  # shape (A, E)
+            if lt in self.policy_dict:
+                ins_losses = numpy.zeros_like(lratios)
+                for a, asset in enumerate(out.assets):
+                    ded, lim = self.policy_dict[lt][asset[self.policy_name]]
+                    ins_losses[a] = insured_losses(
+                        losses[a], ded * avalues[a], lim * avalues[a])
+                yield self.lni[lt + '_ins'], ins_losses
+
+    def aggregate(self, out, eidx, minimum_loss, tagidxs, ws):
+        """
+        Populate .losses_by_A, .losses_by_E and .alt
+        """
+        numlosses = numpy.zeros(2, int)
+        for lni, losses in self.gen_losses(out):
+            if ws is not None:  # compute avg_losses, really fast
+                aids = out.assets['ordinal']
+                self.losses_by_A[aids, lni] += losses @ ws
+            self.losses_by_E[eidx, lni] += losses.sum(axis=0)
+            if tagidxs is not None:
+                # this is the slow part, depending on minimum_loss
+                for a, asset in enumerate(out.assets):
+                    idx = ','.join(map(str, tagidxs[a]))
+                    kept = 0
+                    for loss, eid in zip(losses[a], out.eids):
+                        if loss >= minimum_loss[lni]:
+                            self.alt[idx][eid][lni] += loss
+                            kept += 1
+                    numlosses += numpy.array([kept, len(losses[a])])
+        return numlosses
+
+
+# ####################### Consequences ##################################### #
+
+consequence = CallableDict()
+
+
+@consequence.add('losses')
+def economic_losses(coeffs, asset, dmgdist, loss_type):
+    """
+    :param coeffs: coefficients per damage state
+    :param asset: asset record
+    :param dmgdist: an array of probabilies of shape (E, D - 1)
+    :param loss_type: loss type string
+    :returns: array of economic losses of length E
+    """
+    return dmgdist @ coeffs * asset['value-' + loss_type]

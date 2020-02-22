@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2015-2019 GEM Foundation
+# Copyright (C) 2015-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -34,6 +34,7 @@ def get_assets_by_taxo(assets, tempname=None):
     :returns: assets_by_taxo with attributes eps and idxs
     """
     assets_by_taxo = AccumDict(group_array(assets, 'taxonomy'))
+    assets_by_taxo.assets = assets
     assets_by_taxo.idxs = numpy.argsort(numpy.concatenate([
         a['ordinal'] for a in assets_by_taxo.values()]))
     assets_by_taxo.eps = {}
@@ -53,6 +54,7 @@ def get_output(crmodel, assets_by_taxo, haz, rlzi=None):
     :param assets_by_taxo: a dictionary taxonomy index -> assets on a site
     :param haz: an array or a dictionary of hazard on that site
     :param rlzi: if given, a realization index
+    :returns: an ArrayWrapper loss_type -> array of shape (A, ...)
     """
     if hasattr(haz, 'array'):  # classical
         eids = []
@@ -75,7 +77,8 @@ def get_output(crmodel, assets_by_taxo, haz, rlzi=None):
         data = []
     else:
         raise ValueError('Unexpected haz=%s' % haz)
-    dic = dict(eids=eids)
+    dic = dict(eids=eids, assets=assets_by_taxo.assets,
+               loss_types=crmodel.loss_types)
     if rlzi is not None:
         dic['rlzi'] = rlzi
     for l, lt in enumerate(crmodel.loss_types):
@@ -95,8 +98,8 @@ def get_output(crmodel, assets_by_taxo, haz, rlzi=None):
                 else:  # hcurves
                     dat = data[rm.imti[lt]]
                 arrays.append(rm(lt, assets_, dat, eids, epsilons))
-            res = arrays[0] if len(arrays) == 1 else numpy.sum(
-                a * w for a, w in zip(arrays, weights))
+            res = arrays[0] if len(arrays) == 1 else numpy.average(
+                arrays, weights=weights, axis=0)
             ls.append(res)
         arr = numpy.concatenate(ls)
         dic[lt] = arr[assets_by_taxo.idxs] if len(arr) else arr
@@ -135,8 +138,7 @@ class RiskInput(object):
         hazard_getter = self.hazard_getter
         [sid] = hazard_getter.sids
         if haz is None:
-            with monitor('getting hazard'):
-                haz = hazard_getter.get_hazard()
+            haz = hazard_getter.get_hazard()
         if isinstance(haz, dict):
             items = haz.items()
         else:  # list of length R

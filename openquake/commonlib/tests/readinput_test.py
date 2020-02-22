@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2014-2019 GEM Foundation
+# Copyright (C) 2014-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -27,7 +27,7 @@ from openquake.hazardlib import InvalidFile
 from openquake.risklib import asset
 from openquake.risklib.riskmodels import ValidationError
 from openquake.commonlib import readinput
-from openquake.qa_tests_data.classical import case_1, case_2, case_21
+from openquake.qa_tests_data.classical import case_2, case_21
 from openquake.qa_tests_data.event_based import case_16
 from openquake.qa_tests_data.event_based_risk import case_caracas
 
@@ -342,9 +342,7 @@ POLYGON((78.0 31.5, 89.5 31.5, 89.5 25.5, 78.0 25.5, 78.0 31.5))'''
 
         with self.assertRaises(ValueError) as ctx:
             readinput.get_exposure(oqparam)
-        self.assertIn("Could not convert number->compose"
-                      "(positivefloat,nonzero): '0' is zero, line 17",
-                      str(ctx.exception))
+        self.assertIn("'0.0' is zero, line 17", str(ctx.exception))
 
     def test_invalid_asset_id(self):
         oqparam = mock.Mock()
@@ -425,6 +423,22 @@ exposure_file = %s''' % os.path.basename(self.exposure4))
             readinput.get_sitecol_assetcol(oqparam, cost_types=['structural'])
         self.assertIn("is missing", str(ctx.exception))
 
+    def test_Lon_instead_of_lon(self):
+        fname = os.path.join(DATADIR, 'exposure.xml')
+        with self.assertRaises(InvalidFile) as ctx:
+            asset.Exposure.read([fname])
+        self.assertIn('''\
+Expected: ['id', 'lat', 'lon', 'number', 'structural', 'taxonomy']
+Got: ['Lon', 'id', 'lat', 'number', 'structural', 'taxonomy']
+Missing: {'lon'}''', str(ctx.exception))
+
+    def test_case_similar(self):
+        fname = os.path.join(DATADIR, 'exposure2.xml')
+        with self.assertRaises(InvalidFile) as ctx:
+            asset.Exposure.read([fname])
+        self.assertIn('''\
+Found case-duplicated fields [['ID', 'id']] in ''', str(ctx.exception))
+
 
 class GetCompositeSourceModelTestCase(unittest.TestCase):
 
@@ -494,7 +508,17 @@ class SitecolAssetcolTestCase(unittest.TestCase):
         self.assertEqual(len(assetcol), 151)
         self.assertEqual(len(discarded), 0)
 
+    def test_site_amplification(self):
+        oq = readinput.get_oqparam('job.ini', case_16)
+        oq.inputs['amplification'] = os.path.join(
+            oq.base_path, 'invalid_amplification.csv')
+        with self.assertRaises(InvalidFile) as ctx:
+            readinput.get_amplification(oq)
+        self.assertIn(
+            "levels for b'F' [1.0e-03 1.0e-02 5.0e-02 1.0e-01 2.0e-01 1.6e+00]"
+            " instead of [1.0e-03 1.0e-02 5.0e-02 1.0e-01 2.0e-01 5.0e-01"
+            " 1.6e+00]", str(ctx.exception))
+
     def test_site_model_sites(self):
-        # you cannot set them at the same time
-        with self.assertRaises(ValueError):
-            readinput.get_oqparam('job.ini', case_16, sites='0 0')
+        # you can set them at the same time
+        readinput.get_oqparam('job.ini', case_16, sites='0 0')

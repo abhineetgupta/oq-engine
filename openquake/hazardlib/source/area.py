@@ -1,5 +1,5 @@
 # The Hazard Library
-# Copyright (C) 2012-2019 GEM Foundation
+# Copyright (C) 2012-2020 GEM Foundation
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -68,7 +68,7 @@ class AreaSource(ParametricSeismicSource):
         self.area_discretization = area_discretization
         self.max_radius = 0
 
-    def iter_ruptures(self):
+    def iter_ruptures(self, **kwargs):
         """
         See :meth:
         `openquake.hazardlib.source.base.BaseSeismicSource.iter_ruptures`
@@ -109,8 +109,10 @@ class AreaSource(ParametricSeismicSource):
                                            depth=hc_depth)
                     occurrence_rate = (mag_occ_rate * np_prob * hc_prob
                                        * rate_scaling_factor)
-                    surface = PointSource._get_rupture_surface(
+                    surface, nhc = PointSource._get_rupture_surface(
                         self, mag, np, hypocenter)
+                    if kwargs.get('shift_hypo'):
+                        hc_depth = nhc.depth
                     ref_ruptures.append((mag, np.rake, hc_depth,
                                          surface, occurrence_rate))
 

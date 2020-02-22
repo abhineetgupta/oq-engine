@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2014-2019 GEM Foundation
+# Copyright (C) 2014-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -77,7 +77,7 @@ class ScenarioCalculator(base.HazardCalculator):
         rupser.close()
         self.computer = GmfComputer(
             ebr, self.sitecol, oq.imtls, self.cmaker, oq.truncation_level,
-            oq.correl_model)
+            oq.correl_model, self.amplifier)
         M32 = (numpy.float32, len(self.oqparam.imtls))
         self.sig_eps_dt = [('eid', numpy.uint64), ('sig', M32), ('eps', M32)]
 

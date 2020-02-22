@@ -1,5 +1,5 @@
 # The Hazard Library
-# Copyright (C) 2012-2019 GEM Foundation
+# Copyright (C) 2012-2020 GEM Foundation
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -18,7 +18,6 @@ Module :mod:`openquake.hazardlib.source.base` defines a base class for
 seismic sources.
 """
 import abc
-import math
 import numpy
 from openquake.baselib.slots import with_slots
 from openquake.hazardlib.geo import Point
@@ -62,7 +61,7 @@ class BaseSeismicSource(metaclass=abc.ABCMeta):
             nr = self.num_ruptures / rescale
         else:
             nr = self.num_ruptures
-        return nr * math.sqrt(self.nsites)
+        return nr * (self.nsites + 100) / 100
 
     @property
     def nsites(self):
@@ -95,7 +94,7 @@ class BaseSeismicSource(metaclass=abc.ABCMeta):
         self.id = None  # set by the engine
 
     @abc.abstractmethod
-    def iter_ruptures(self):
+    def iter_ruptures(self, **kwargs):
         """
         Get a generator object that yields probabilistic ruptures the source
         consists of.
@@ -126,6 +125,20 @@ class BaseSeismicSource(metaclass=abc.ABCMeta):
                 if num_occ:
                     rup.rup_id = rup_id  # used as seed
                     yield rup, num_occ
+
+    def get_mags(self):
+        """
+        :returns: the magnitudes of the ruptures contained in the source
+        """
+        mags = set()
+        if hasattr(self, 'get_annual_occurrence_rates'):
+            for mag, rate in self.get_annual_occurrence_rates():
+                mags.add(mag)
+        else:  # nonparametric
+            for rup, pmf in self.data:
+                if rup.mag >= self.min_mag:
+                    mags.add(rup.mag)
+        return sorted(mags)
 
     def sample_ruptures_poissonian(self, rupids, eff_num_ses):
         """
@@ -165,7 +178,7 @@ class BaseSeismicSource(metaclass=abc.ABCMeta):
                 hc = Point(latitude=src.location.latitude,
                            longitude=src.location.longitude,
                            depth=hc_depth)
-                surface = src._get_rupture_surface(mag, np, hc)
+                surface, _ = src._get_rupture_surface(mag, np, hc)
                 rup = ParametricProbabilisticRupture(
                     mag, np.rake, src.tectonic_region_type, hc,
                     surface, rate, tom)

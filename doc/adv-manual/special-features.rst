@@ -56,7 +56,7 @@ another and to SA(1.0) with still another one. The user may want to
 give an higher weight to the IMTs were the GMPE has a small
 uncertainty and a lower weight to the IMTs with a large
 uncertainty. Moreover the GMPE could not be applicable for some
-period, and in that case the user cab assign to it a zero weight, to
+period, and in that case the user can assign to it a zero weight, to
 ignore it.  This is useful when you have a logic tree with multiple
 GMPEs per branchset, some of which are applicable for some IMTs and
 not for others.  Here is an example:
@@ -117,9 +117,8 @@ You can enable it in the engine by adding a ``[reqv]`` section to the
 job.ini, like in our example in
 openquake/qa_tests_data/classical/case_2/job.ini::
 
-  [reqv]
-  active shallow crust = lookup_asc.hdf5
-  stable shallow crust = lookup_sta.hdf5
+reqv_hdf5 = {'active shallow crust': 'lookup_asc.hdf5',
+             'stable shallow crust': 'lookup_sta.hdf5'}
 
 For each tectonic region type to which the approximation should be applied,
 the user must provide a lookup table in .hdf5 format containing arrays
@@ -134,7 +133,7 @@ Depending on the tectonic region type and rupture magnitude, the
 engine converts the epicentral distance ``repi` into an equivalent
 distance by looking at the lookup table and use it to determine the
 ``rjb`` and ``rrup`` distances, instead of the regular routines. This
-means that within this approximation ruptures are treated as really
+means that within this approximation ruptures are treated as
 pointwise and not rectangular as the engine usually does.
 
 Notice that the equivalent epicenter distance approximation only

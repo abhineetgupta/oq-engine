@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2010-2019 GEM Foundation
+# Copyright (C) 2010-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -142,7 +142,6 @@ import os
 import re
 import ast
 import sys
-import gzip
 import time
 import socket
 import signal
@@ -162,7 +161,7 @@ except ImportError:
     def setproctitle(title):
         "Do nothing"
 
-from openquake.baselib import config, hdf5, workerpool
+from openquake.baselib import config, hdf5, workerpool, __version__
 from openquake.baselib.zeromq import zmq, Socket
 from openquake.baselib.performance import (
     Monitor, memory_rss, init_performance)
@@ -170,8 +169,16 @@ from openquake.baselib.general import (
     split_in_blocks, block_splitter, AccumDict, humansize, CallableDict,
     gettemp)
 
-GB = 1024 ** 3
+sys.setrecursionlimit(1200)  # raised a bit to make pickle happier
+# see https://github.com/gem/oq-engine/issues/5230
 submit = CallableDict()
+GB = 1024 ** 3
+# use only the "visible" cores, not the total system cores
+# if the underlying OS supports it (macOS does not)
+try:
+    CT = len(psutil.Process().cpu_affinity()) * 2
+except AttributeError:
+    CT = psutil.cpu_count() * 2
 
 
 @submit.add('no')
@@ -222,15 +229,6 @@ def oq_distribute(task=None):
     return dist
 
 
-if False:  #config.general.compress
-    # must be a global config since every change requires a DbServer restart
-    compress = gzip.compress
-    decompress = gzip.decompress
-else:
-    compress = lambda x: x
-    decompress = lambda x: x
-
-
 class Pickled(object):
     """
     An utility to manually pickling/unpickling objects.
@@ -245,7 +243,7 @@ class Pickled(object):
         self.clsname = obj.__class__.__name__
         self.calc_id = str(getattr(obj, 'calc_id', ''))  # for monitors
         try:
-            self.pik = compress(pickle.dumps(obj, pickle.HIGHEST_PROTOCOL))
+            self.pik = pickle.dumps(obj, pickle.HIGHEST_PROTOCOL)
         except TypeError as exc:  # can't pickle, show the obj in the message
             raise TypeError('%s: %s' % (exc, obj))
 
@@ -260,7 +258,7 @@ class Pickled(object):
 
     def unpickle(self):
         """Unpickle the underlying object"""
-        return pickle.loads(decompress(self.pik))
+        return pickle.loads(self.pik)
 
 
 def get_pickled_sizes(obj):
@@ -307,6 +305,17 @@ def pickle_sequence(objects):
     return out
 
 
+class FakePickle:
+    def __init__(self, sentbytes):
+        self.sentbytes = sentbytes
+
+    def unpickle(self):
+        pass
+
+    def __len__(self):
+        return self.sentbytes
+
+
 class Result(object):
     """
     :param val: value to return or exception instance
@@ -316,7 +325,7 @@ class Result(object):
     """
     func = None
 
-    def __init__(self, val, mon, tb_str='', msg='', count=0):
+    def __init__(self, val, mon, tb_str='', msg=''):
         if isinstance(val, dict):
             self.pik = Pickled(val)
             self.nbytes = {k: len(Pickled(v)) for k, v in val.items()}
@@ -330,7 +339,6 @@ class Result(object):
         self.mon = mon
         self.tb_str = tb_str
         self.msg = msg
-        self.count = count
 
     def get(self):
         """
@@ -351,21 +359,27 @@ class Result(object):
         return '<%s %s>' % (self.__class__.__name__, ' '.join(nbytes))
 
     @classmethod
-    def new(cls, func, args, mon, count=0):
+    def new(cls, func, args, mon, sentbytes=0):
         """
         :returns: a new Result instance
         """
         try:
+            if mon.version != __version__:
+                raise RuntimeError(
+                    'The master is at version %s while the worker %s is at '
+                    'version %s' % (mon.version, socket.gethostname(),
+                                    __version__))
             with mon:
                 val = func(*args)
         except StopIteration:
+            mon.counts -= 1  # StopIteration does not count
             res = Result(None, mon, msg='TASK_ENDED')
+            res.pik = FakePickle(sentbytes)
         except Exception:
             _etype, exc, tb = sys.exc_info()
-            res = Result(exc, mon, ''.join(traceback.format_tb(tb)),
-                         count=count)
+            res = Result(exc, mon, ''.join(traceback.format_tb(tb)))
         else:
-            res = Result(val, mon, count=count)
+            res = Result(val, mon)
         return res
 
 
@@ -386,6 +400,7 @@ def check_mem_usage(soft_percent=None, hard_percent=None):
 
 
 dummy_mon = Monitor()
+dummy_mon.version = __version__
 dummy_mon.backurl = None
 
 
@@ -409,35 +424,32 @@ def safely_call(func, args, task_no=0, mon=dummy_mon):
     if mon is dummy_mon:  # in the DbServer
         assert not isgenfunc, func
         return Result.new(func, args, mon)
-
     mon = mon.new(operation='total ' + func.__name__, measuremem=True)
     mon.weight = getattr(args[0], 'weight', 1.)  # used in task_info
     mon.task_no = task_no
     if mon.inject:
         args += (mon,)
+    sentbytes = 0
     with Socket(mon.backurl, zmq.PUSH, 'connect') as zsocket:
         msg = check_mem_usage()  # warn if too much memory is used
         if msg:
             zsocket.send(Result(None, mon, msg=msg))
         if inspect.isgeneratorfunction(func):
-            gfunc = func
+            it = func(*args)
         else:
-            def gfunc(*args):
+            def gen(*args):
                 yield func(*args)
-        gobj = gfunc(*args)
-        for count in itertools.count():
-            res = Result.new(next, (gobj,), mon, count=count)
+            it = gen(*args)
+        while True:
             # StopIteration -> TASK_ENDED
+            res = Result.new(next, (it,), mon, sentbytes)
             try:
                 zsocket.send(res)
             except Exception:  # like OverflowError
                 _etype, exc, tb = sys.exc_info()
-                err = Result(exc, mon, ''.join(traceback.format_tb(tb)),
-                             count=count)
+                err = Result(exc, mon, ''.join(traceback.format_tb(tb)))
                 zsocket.send(err)
-            mon.duration = 0
-            mon.counts = 0
-            mon.children.clear()
+            sentbytes += len(res.pik)
             if res.msg == 'TASK_ENDED':
                 break
 
@@ -506,7 +518,7 @@ class IterResult(object):
             else:
                 # measure only the memory used by the main process
                 mem_gb = memory_rss(os.getpid()) / GB
-            if not result.func:  # real output
+            if result.msg == 'TASK_ENDED':
                 task_sent = ast.literal_eval(self.h5['task_sent'][()])
                 task_sent.update(self.sent)
                 del self.h5['task_sent']
@@ -515,6 +527,7 @@ class IterResult(object):
                 result.mon.save_task_info(self.h5, result, name, mem_gb)
                 result.mon.flush(self.h5)
                 self.h5.flush()
+            elif not result.func:  # real output
                 yield val
 
     def __iter__(self):
@@ -534,7 +547,8 @@ class IterResult(object):
                 humansize(max_per_output))
             if self.nbytes:
                 nb = {k: humansize(v) for k, v in self.nbytes.items()}
-                logging.info('Received %s', nb)
+                if len(nb) < 10:
+                    logging.info('Received %s', nb)
 
     def reduce(self, agg=operator.add, acc=None):
         if acc is None:
@@ -589,8 +603,9 @@ def getargnames(task_func):
 class Starmap(object):
     pids = ()
     running_tasks = []  # currently running tasks
-    num_cores = multiprocessing.cpu_count()
-    oversubmit = False
+    # use only the "visible" cores, not the total system cores
+    # if the underlying OS supports it (macOS does not)
+    num_cores = None
 
     @classmethod
     def init(cls, poolsize=None, distribute=None):
@@ -658,7 +673,7 @@ class Starmap(object):
                 arg0, maxweight, weight, key))
         else:  # split_in_blocks is eager
             if concurrent_tasks is None:
-                concurrent_tasks = cls.num_cores * 2
+                concurrent_tasks = CT
             taskargs = [(blk,) + args for blk in split_in_blocks(
                 arg0, concurrent_tasks or 1, weight, key)]
         return cls(
@@ -682,7 +697,7 @@ class Starmap(object):
         self.task_args = task_args
         self.progress = progress
         self.h5 = h5
-        self.num_cores = num_cores or self.__class__.num_cores
+        self.num_cores = num_cores
         self.task_queue = []
         try:
             self.num_tasks = len(self.task_args)
@@ -734,7 +749,12 @@ class Starmap(object):
             self.socket = Socket(self.receiver, zmq.PULL, 'bind').__enter__()
             monitor.backurl = 'tcp://%s:%s' % (
                 config.dbserver.host, self.socket.port)
-        dist = 'no' if self.num_tasks == 1 else self.distribute
+            monitor.version = __version__
+        OQ_TASK_NO = os.environ.get('OQ_TASK_NO')
+        if OQ_TASK_NO is not None and self.task_no != int(OQ_TASK_NO):
+            self.task_no += 1
+            return
+        dist = 'no' if self.num_tasks == 1 or OQ_TASK_NO else self.distribute
         if dist != 'no':
             pickled = isinstance(args[0], Pickled)
             if not pickled:
@@ -755,8 +775,12 @@ class Starmap(object):
         """
         :returns: an IterResult object
         """
-        self.task_queue = [(self.task_func, args)
-                           for args in self.task_args]
+        if self.num_tasks is None:  # loop on the iterator
+            for args in self.task_args:
+                self.submit(args)
+        else:  # build a task queue in advance
+            self.task_queue = [(self.task_func, args)
+                               for args in self.task_args]
         return self.get_results()
 
     def get_results(self):
@@ -778,18 +802,17 @@ class Starmap(object):
     def _submit_many(self, howmany):
         for _ in range(howmany):
             if self.task_queue:
-                # remove in LIFO order to avoid too many subtasks upfront
-                func, args = self.task_queue[-1]
-                del self.task_queue[-1]
+                # remove in LIFO order
+                func, args = self.task_queue[0]
+                del self.task_queue[0]
                 self.submit(args, func=func)
                 self.todo += 1
-                logging.debug('%d tasks todo, %d in queue',
-                              self.todo, len(self.task_queue))
 
     def _loop(self):
+        num_cores = self.num_cores or CT // 2
         if self.task_queue:
-            first_args = self.task_queue[:self.num_cores]
-            self.task_queue[:] = self.task_queue[self.num_cores:]
+            first_args = self.task_queue[:num_cores]
+            self.task_queue[:] = self.task_queue[num_cores:]
             for func, args in first_args:
                 self.submit(args, func=func)
         if not hasattr(self, 'socket'):  # no submit was ever made
@@ -804,14 +827,17 @@ class Starmap(object):
                                 'is job %d', res.mon.calc_id, self.calc_id)
             elif res.msg == 'TASK_ENDED':
                 self.todo -= 1
-                self._submit_many(max(self.num_cores - self.todo, 2))
+                self._submit_many(1)
+                logging.debug('%d tasks todo, %d in queue',
+                              self.todo, len(self.task_queue))
                 self.log_percent()
+                yield res
             elif res.func:  # add subtask
                 self.task_queue.append((res.func, res.pik))
-                if self.todo < self.num_cores:
+                if self.num_cores is None:
+                    self._submit_many(1)  # oversubmit
+                elif self.todo < self.num_cores:
                     self._submit_many(self.num_cores - self.todo)
-                elif self.oversubmit:
-                    self._submit_many(1)
             else:
                 yield res
         self.log_percent()
@@ -819,7 +845,7 @@ class Starmap(object):
         self.tasks.clear()
 
 
-def sequential_apply(task, args, concurrent_tasks=Starmap.num_cores * 2,
+def sequential_apply(task, args, concurrent_tasks=CT,
                      weight=lambda item: 1, key=lambda item: 'Unspecified'):
     """
     Apply sequentially task to args by splitting args[0] in blocks

@@ -1,5 +1,5 @@
 # The Hazard Library
-# Copyright (C) 2012-2019 GEM Foundation
+# Copyright (C) 2012-2020 GEM Foundation
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -87,12 +87,12 @@ class MultiPointSource(ParametricSeismicSource):
     def __len__(self):
         return len(self.mfd)
 
-    def iter_ruptures(self):
+    def iter_ruptures(self, **kwargs):
         """
         Yield the ruptures of the underlying point sources
         """
         for ps in self:
-            for rupture in ps.iter_ruptures():
+            for rupture in ps.iter_ruptures(**kwargs):
                 yield rupture
 
     def count_ruptures(self):

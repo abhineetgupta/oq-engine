@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2012-2019 GEM Foundation
+# Copyright (C) 2012-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -354,7 +354,7 @@ class AtkinsonBoore2003SInterNSHMP2008(AtkinsonBoore2003SInter):
         """
         # fix hypocentral depth to 20 km. Create new rupture context to avoid
         # changing the original one
-        new_rup = copy.deepcopy(rup)
+        new_rup = copy.copy(rup)
         new_rup.hypo_depth = 20.
 
         mean, stddevs = super().get_mean_and_stddevs(

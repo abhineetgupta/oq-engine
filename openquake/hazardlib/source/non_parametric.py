@@ -1,5 +1,5 @@
 # The Hazard Library
-# Copyright (C) 2013-2019 GEM Foundation
+# Copyright (C) 2013-2020 GEM Foundation
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -60,7 +60,7 @@ class NonParametricSeismicSource(BaseSeismicSource):
         super().__init__(source_id, name, tectonic_region_type)
         self.data = data
 
-    def iter_ruptures(self):
+    def iter_ruptures(self, **kwargs):
         """
         Get a generator object that yields probabilistic ruptures the source
         consists of.

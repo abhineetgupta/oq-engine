@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright (C) 2015-2019 GEM Foundation
+# Copyright (C) 2015-2020 GEM Foundation
 
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -27,6 +27,7 @@ import itertools
 from numbers import Number
 from urllib.parse import quote_plus, unquote_plus
 import collections
+import toml
 import numpy
 import h5py
 from openquake.baselib import InvalidFile
@@ -329,14 +330,25 @@ class File(h5py.File):
         elif (isinstance(obj, numpy.ndarray) and obj.shape and
               len(obj) and isinstance(obj[0], str)):
             self.create_dataset(path, obj.shape, vstr)[:] = obj
+        elif (isinstance(obj, numpy.ndarray) and not obj.shape and
+              obj.dtype.name.startswith('bytes')):
+            self._set(path, numpy.void(bytes(obj)))
         elif isinstance(obj, list) and len(obj) and isinstance(
                 obj[0], numpy.ndarray):
             self.save_vlen(path, obj)
+        elif isinstance(obj, bytes):
+            self._set(path, numpy.void(obj))
         else:
-            super().__setitem__(path, obj)
+            self._set(path, obj)
         if pyclass:
             self.flush()  # make sure it is fully saved
             self.save_attrs(path, attrs, __pyclass__=pyclass)
+
+    def _set(self, path, obj):
+        try:
+            super().__setitem__(path, obj)
+        except Exception as exc:
+            raise exc.__class__('Could not set %s=%r' % (path, obj))
 
     def __getitem__(self, path):
         h5obj = super().__getitem__(path)
@@ -386,6 +398,9 @@ def array_of_vstr(lst):
 class ArrayWrapper(object):
     """
     A pickleable and serializable wrapper over an array, HDF5 dataset or group
+
+    :param array: an array (or the empty tuple)
+    :param attrs: metadata of the array (or dictionary of arrays)
     """
     @classmethod
     def from_(cls, obj, extra='value'):
@@ -453,6 +468,16 @@ class ArrayWrapper(object):
         """shape of the underlying array"""
         return self.array.shape if hasattr(self, 'array') else ()
 
+    def toml(self):
+        """
+        :returns: a TOML string representation of the ArrayWrapper
+        """
+        if self.shape:
+            return toml.dumps(self.array)
+        dic = {k: v for k, v in vars(self).items()
+               if not k.startswith('_')}
+        return toml.dumps(dic)
+
     def save(self, path, **extra):
         """
         :param path: an .hdf5 pathname
@@ -468,17 +493,6 @@ class ArrayWrapper(object):
                         logging.error(str(err))
             for k, v in extra.items():
                 f.attrs[k] = maybe_encode(v)
-
-    def sum_all(self, *tags):
-        """
-        Reduce the underlying array by summing on the given dimensions
-        """
-        tag2idx = {tag: i for i, tag in enumerate(self.shape_descr)}
-        array = self.array.sum(axis=tuple(tag2idx[tag] for tag in tags))
-        attrs = vars(self).copy()
-        attrs['shape_descr'] = [tag for tag in self.shape_descr
-                                if tag not in tags]
-        return self.__class__(array, attrs)
 
     def to_table(self):
         """
@@ -501,10 +515,6 @@ class ArrayWrapper(object):
          ('RC', 'RES', 2000.0),
          ('RC', 'IND', 5000.0),
          ('WOOD', 'RES', 500.0)]
-        >>> pprint(aw.sum_all('taxonomy').to_table())
-        [('occupancy', 'value'), ('RES', 2500.0), ('IND', 5000.0)]
-        >>> pprint(aw.sum_all('occupancy').to_table())
-        [('taxonomy', 'value'), ('RC', 7000.0), ('WOOD', 500.0)]
         """
         shape = self.shape
         tup = len(self._extra) > 1
@@ -611,23 +621,13 @@ def parse_comment(comment):
     `investigation_time=50.0, imt="PGA", ...`
     and returns it as pairs of strings:
 
-    >>> parse_comment('''path=('b1',), time=50.0, imt="PGA"''')
-    [('path', ('b1',)), ('time', 50.0), ('imt', 'PGA')]
+    >>> parse_comment('''path=['b1'], time=50.0, imt="PGA"''')
+    [('path', ['b1']), ('time', 50.0), ('imt', 'PGA')]
     """
-    names, vals = [], []
-    if comment.startswith('"'):
+    if comment[0] == '"' and comment[-1] == '"':
         comment = comment[1:-1]
-    pieces = comment.split('=')
-    for i, piece in enumerate(pieces):
-        if i == 0:  # first line
-            names.append(piece.strip())
-        elif i == len(pieces) - 1:  # last line
-            vals.append(ast.literal_eval(piece))
-        else:
-            val, name = piece.rsplit(',', 1)
-            vals.append(ast.literal_eval(val))
-            names.append(name.strip())
-    return list(zip(names, vals))
+    dic = toml.loads('{%s}' % comment.replace('""', '"'))
+    return list(dic.items())
 
 
 def build_dt(dtypedict, names):
@@ -641,8 +641,26 @@ def build_dt(dtypedict, names):
             dt = dtypedict[name]
         except KeyError:
             dt = dtypedict[None]
-        lst.append((name, dt))
+        lst.append((name, vstr if dt is str else dt))
     return numpy.dtype(lst)
+
+
+def _read_csv(fileobj, compositedt):
+    itemsize = [0] * len(compositedt)
+    for i, name in enumerate(compositedt.names):
+        if compositedt[name].kind == 'S':  # limit of the length of byte-fields
+            itemsize[i] = compositedt[name].itemsize
+    rows = []
+    for lineno, row in enumerate(csv.reader(fileobj), 3):
+        cols = []
+        for i, col in enumerate(row):
+            if itemsize[i] and len(col) > itemsize[i]:
+                raise ValueError(
+                    'line %d: %s=%r has length %d > %d' %
+                    (lineno, compositedt.names[i], col, len(col), itemsize[i]))
+            cols.append(col)
+        rows.append(tuple(cols))
+    return numpy.array(rows, compositedt)
 
 
 # NB: it would be nice to use numpy.loadtxt(
@@ -661,13 +679,14 @@ def read_csv(fname, dtypedict={None: float}, renamedict={}, sep=','):
         while True:
             first = next(f)
             if first.startswith('#'):
-                attrs = dict(parse_comment(first.strip('#,\n')))
+                attrs = dict(parse_comment(first.strip('#,\n ')))
                 continue
             break
         header = first.strip().split(sep)
         try:
-            rows = [tuple(row) for row in csv.reader(f)]
-            arr = numpy.array(rows, build_dt(dtypedict, header))
+            arr = _read_csv(f, build_dt(dtypedict, header))
+        except KeyError:
+            raise KeyError('Missing None -> default in dtypedict')
         except Exception as exc:
             raise InvalidFile('%s: %s' % (fname, exc))
     if renamedict:

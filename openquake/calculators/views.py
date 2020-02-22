@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2015-2019 GEM Foundation
+# Copyright (C) 2015-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -16,7 +16,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with OpenQuake. If not, see <http://www.gnu.org/licenses/>.
 import ast
-import copy
 import os.path
 import numbers
 import operator
@@ -59,7 +58,7 @@ def form(value):
     >>> form(0.0001)
     '1.000E-04'
     >>> form(1003.4)
-    '1,003'
+    '1_003'
     >>> form(103.4)
     '103'
     >>> form(9.3)
@@ -75,7 +74,7 @@ def form(value):
         elif value < 10 and isinstance(value, FLOAT):
             return '%.5f' % value
         elif value > 1000:
-            return '{:,d}'.format(int(round(value)))
+            return '{:_d}'.format(int(round(value)))
         elif numpy.isnan(value):
             return 'NaN'
         else:  # in the range 10-1000
@@ -168,6 +167,20 @@ def view_slow_sources(token, dstore, maxrows=20):
     return rst_table(data[::-1][:maxrows])
 
 
+@view.add('slow_ruptures')
+def view_slow_ruptures(token, dstore, maxrows=25):
+    """
+    Show the slowest ruptures
+    """
+    fields = ['code', 'n_occ', 'mag', 'grp_id']
+    rups = dstore['ruptures'][()][fields]
+    time = dstore['gmf_data/time_by_rup'][()]
+    arr = util.compose_arrays(rups, time)
+    arr = arr[arr['nsites'] > 0]
+    arr.sort(order='time')
+    return rst_table(arr[-maxrows:])
+
+
 @view.add('contents')
 def view_contents(token, dstore):
     """
@@ -226,6 +239,7 @@ def view_params(token, dstore):
               'ses_per_logic_tree_path', 'truncation_level',
               'rupture_mesh_spacing', 'complex_fault_mesh_spacing',
               'width_of_mfd_bin', 'area_source_discretization',
+              'pointsource_distance',
               'ground_motion_correlation_model', 'minimum_intensity',
               'random_seed', 'master_seed', 'ses_seed']
     if 'risk' in oq.calculation_mode:
@@ -324,11 +338,10 @@ def view_totlosses(token, dstore):
 def portfolio_loss(dstore):
     R = dstore['csm_info'].get_num_rlzs()
     array = dstore['losses_by_event'][()]
-    L = array.dtype['loss'].shape[0]  # loss has shape L, T...
+    L, = array.dtype['loss'].shape  # loss has shape L
     data = numpy.zeros((R, L), F32)
     for row in array:
-        for lti in range(L):
-            data[row['rlzi'], lti] += row['loss'][lti].sum()
+        data[row['rlzi']] += row['loss']
     return data
 
 
@@ -428,16 +441,18 @@ def performance_view(dstore, add_calc_id=True):
         counts = 0
         time = 0
         mem = 0
-        for _operation, time_sec, memory_mb, counts_ in group:
-            counts += counts_
-            time += time_sec
-            mem = max(mem, memory_mb)
+        for rec in group:
+            counts += rec['counts']
+            time += rec['time_sec']
+            mem = max(mem, rec['memory_mb'])
         out.append((operation, time, mem, counts))
     out.sort(key=operator.itemgetter(1), reverse=True)  # sort by time
-    dt = copy.copy(perf_dt)
     if add_calc_id:
-        dt.names = ('calc_%d' % dstore.calc_id,) + dt.names[1:]
-    return numpy.array(out, dt)
+        dtlist = [('calc_%d' % dstore.calc_id, perf_dt['operation'])]
+    else:
+        dtlist = [('operation', perf_dt['operation'])]
+    dtlist.extend((n, perf_dt[n]) for n in perf_dt.names[1:-1])
+    return numpy.array(out, dtlist)
 
 
 @view.add('performance')
@@ -529,7 +544,7 @@ def view_task_info(token, dstore):
     args = token.split(':')[1:]  # called as task_info:task_name
     if args:
         [task] = args
-        array = get_array(task_info[()], taskname=task)
+        array = get_array(task_info[()], taskname=task.encode('utf8'))
         rduration = array['duration'] / array['weight']
         data = util.compose_arrays(rduration, array, 'rduration')
         data.sort(order='duration')
@@ -566,15 +581,17 @@ def view_task_hazard(token, dstore):
      $ oq show task:classical:-1  # the slowest task
     """
     _, name, index = token.split(':')
-    if 'sources_by_task' not in dstore:
-        return 'Missing sources_by_task'
+    if 'by_task' not in dstore:
+        return 'Missing by_task'
     data = get_array(dstore['task_info'][()], taskname=encode(name))
     if len(data) == 0:
         raise RuntimeError('No task_info for %s' % name)
     data.sort(order='duration')
     rec = data[int(index)]
-    taskno = rec['taskno']
-    eff_ruptures, eff_sites, srcids = dstore['sources_by_task'][taskno]
+    taskno = rec['task_no']
+    eff_ruptures = dstore['by_task/eff_ruptures'][taskno]
+    eff_sites = dstore['by_task/eff_sites'][taskno]
+    srcids = dstore['by_task/srcids'][taskno]
     srcs = dstore['source_info']['source_id'][srcids]
     res = ('taskno=%d, eff_ruptures=%d, eff_sites=%d, duration=%d s\n'
            'sources="%s"' % (taskno, eff_ruptures, eff_sites, rec['duration'],
@@ -590,19 +607,19 @@ def view_task_ebrisk(token, dstore):
     $ oq show task_ebrisk:-1  # the slowest task
     """
     idx = int(token.split(':')[1])
-    task_info = get_array(dstore['task_info'][()], taskname='ebrisk')
+    task_info = get_array(dstore['task_info'][()], taskname=b'ebrisk')
     task_info.sort(order='duration')
     info = task_info[idx]
-    times = get_array(dstore['gmf_info'][()], task_no=info['taskno'])
+    times = get_array(dstore['gmf_info'][()], task_no=info['task_no'])
     extra = times[['nsites', 'gmfbytes', 'dt']]
     ds = dstore.parent if dstore.parent else dstore
-    rups = ds['ruptures']['rup_id', 'code', 'n_occ', 'mag'][times['ridx']]
+    rups = ds['ruptures']['id', 'code', 'n_occ', 'mag'][times['rup_id']]
     codeset = set('code_%d' % code for code in numpy.unique(rups['code']))
     tbl = rst_table(util.compose_arrays(rups, extra))
     codes = ['%s: %s' % it for it in ds.getitem('ruptures').attrs.items()
              if it[0] in codeset]
     msg = '%s\n%s\nHazard time for task %d: %d of %d s, ' % (
-        tbl, '\n'.join(codes), info['taskno'], extra['dt'].sum(),
+        tbl, '\n'.join(codes), info['task_no'], extra['dt'].sum(),
         info['duration'])
     msg += 'gmfbytes=%s, w=%d' % (
         humansize(extra['gmfbytes'].sum()),
@@ -651,30 +668,6 @@ def view_global_hcurves(token, dstore):
     return rst_table(res)
 
 
-@view.add('dupl_sources_time')
-def view_dupl_sources_time(token, dstore):
-    """
-    Display the time spent computing duplicated sources
-    """
-    info = dstore['source_info']
-    items = sorted(group_array(info[()], 'source_id').items())
-    tbl = []
-    tot_time = 0
-    for source_id, records in items:
-        if len(records) > 1:  # dupl
-            calc_time = records['calc_time'].sum()
-            tot_time += calc_time
-            tbl.append((source_id, calc_time, len(records)))
-    if tbl:
-        tot = info['calc_time'].sum() + info['split_time'].sum()
-        percent = tot_time / tot * 100
-        m = '\nTotal time in duplicated sources: %d/%d (%d%%)' % (
-            tot_time, tot, percent)
-        return rst_table(tbl, ['source_id', 'calc_time', 'num_dupl']) + m
-    else:
-        return 'There are no duplicated sources'
-
-
 @view.add('global_poes')
 def view_global_poes(token, dstore):
     """
@@ -718,6 +711,20 @@ def view_global_gmfs(token, dstore):
     imtls = dstore['oqparam'].imtls
     row = dstore['gmf_data/data']['gmv'].mean(axis=0)
     return rst_table([row], header=imtls)
+
+
+@view.add('gmv_by_rup')
+def view_gmv_by_rup(token, dstore):
+    """
+    Display a synthetic gmv per rupture serial for debugging purposes
+    """
+    rup_id = dstore['events']['rup_id']
+    serial = dstore['ruptures']['serial']
+    data = dstore['gmf_data/data'][()]
+    gmv = fast_agg3(data, 'eid', ['gmv'])
+    gmv['eid'] = serial[rup_id[gmv['eid']]]
+    gm = fast_agg3(gmv, 'eid', ['gmv'])
+    return rst_table(gm, header=['serial', 'gmv'])
 
 
 @view.add('mean_disagg')
@@ -782,42 +789,20 @@ def view_act_ruptures_by_src(token, dstore):
     return rst_table(table)
 
 
+@view.add('bad_ruptures')
+def view_bad_ruptures(token, dstore):
+    """
+    Display the ruptures degenerating to a point
+    """
+    data = dstore['ruptures']['id', 'code', 'mag',
+                              'minlon', 'maxlon', 'minlat', 'maxlat']
+    bad = data[numpy.logical_and(data['minlon'] == data['maxlon'],
+                                 data['minlat'] == data['maxlat'])]
+    return rst_table(bad)
+
+
 Source = collections.namedtuple(
     'Source', 'source_id code num_ruptures checksum')
-
-
-class String(str):
-    # a string with a value, used in show dupl_sources
-    def __new__(cls, msg, val):
-        self = str.__new__(cls, msg)
-        self.val = val
-        return self
-
-
-@view.add('dupl_sources')
-def view_dupl_sources(token, dstore):
-    """
-    Show the sources with the same ID and the truly duplicated sources
-    """
-    array = dstore['source_info']['source_id', 'checksum', 'num_ruptures']
-    dic = group_array(array, 'source_id', 'checksum')
-    dupl = []
-    uniq = []
-    muls = []
-    nr = 0
-    for (source_id, checksum), group in dic.items():
-        mul = len(group)
-        nr += group[0]['num_ruptures']
-        if mul > 1:  # duplicate
-            muls.append(mul)
-            dupl.append(source_id)
-        else:
-            uniq.append(source_id)
-    if not dupl:
-        return String('', nr)
-    u, d, m = len(uniq), len(dupl), sum(muls) / len(dupl)
-    return String('Found %d unique sources and %d duplicate sources with'
-                  ' multiplicity %.1f: %s' % (u, d, m, numpy.array(dupl)), nr)
 
 
 @view.add('extreme_groups')
@@ -882,3 +867,13 @@ def view_events_by_mag(token, dstore):
     for mag, grp in group_array(rups, 'mag').items():
         counts[mag] = sum(num_evs[rup_id] for rup_id in grp['id'])
     return rst_table(counts.items(), ['mag', 'num_events'])
+
+
+@view.add('maximum_intensity')
+def view_maximum_intensity(token, dstore):
+    """
+    Show intensities at minimum and maximum distance for the highest magnitude
+    """
+    effect = extract(dstore, 'effect')
+    data = zip(dstore['csm_info'].trts, effect[-1, -1], effect[-1, 0])
+    return rst_table(data, ['trt', 'intensity1', 'intensity2'])

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2017-2019 GEM Foundation
+# Copyright (C) 2017-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -33,8 +33,7 @@ def workers(cmd):
             getpass.getuser() != 'openquake'):
         sys.exit('oq workers only works in single user mode')
 
-    master = workerpool.WorkerMaster(config.dbserver.host,
-                                     **config.zworkers)
+    master = workerpool.WorkerMaster(**config.zworkers)
     pprint(getattr(master, cmd)())
 
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2018-2019 GEM Foundation
+# Copyright (C) 2018-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -44,7 +44,7 @@ class RuptureCollectionSource(ParametricSeismicSource):
     def count_ruptures(self):
         return self.num_ruptures
 
-    def iter_ruptures(self):
+    def iter_ruptures(self, **kwargs):
         return iter(self.ruptures)
 
     def get_bounding_box(self, maxdist):

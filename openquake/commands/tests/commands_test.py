@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2015-2019 GEM Foundation
+# Copyright (C) 2015-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -211,12 +211,9 @@ class RunShowExportTestCase(unittest.TestCase):
         """
         Build a datastore instance to show what it is inside
         """
-        # the tests here gave mysterious core dumps in Ubuntu 16.04,
-        # but only when called together with all other tests with the command
-        # nosetests openquake/commonlib/
         job_ini = os.path.join(os.path.dirname(case_1.__file__), 'job.ini')
         with Print.patch() as cls.p:
-            calc = run._run([job_ini], 0, False, 'info', None, '', {})
+            calc = run._run([job_ini], 0, 'nojob', False, 'info', None, '', {})
         cls.calc_id = calc.datastore.calc_id
 
     def test_run_calc(self):
@@ -448,10 +445,6 @@ class EngineRunJobTestCase(unittest.TestCase):
         with read(job_id) as dstore:
             perf = view('performance', dstore)
             self.assertIn('total event_based_risk', perf)
-            task_info = view('task_info', dstore)
-            self.assertIn('compute_gmfs', task_info)
-            job_info = view('job_info', dstore)
-            self.assertIn('compute_gmfs', job_info)
 
     def test_smart_run(self):
         # test smart_run with gmf_ebrisk, since it was breaking
@@ -480,12 +473,12 @@ class CheckInputTestCase(unittest.TestCase):
         job_zip = os.path.join(list(test_data.__path__)[0],
                                'archive_err_1.zip')
         with self.assertRaises(ValueError):
-            check_input(job_zip)
+            check_input([job_zip])
 
     def test_valid(self):
         job_ini = os.path.join(list(test_data.__path__)[0],
                                'event_based_hazard/job.ini')
-        check_input(job_ini)
+        check_input([job_ini])
 
 
 class PrepareSiteModelTestCase(unittest.TestCase):

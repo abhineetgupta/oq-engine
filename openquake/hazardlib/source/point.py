@@ -1,5 +1,5 @@
 # The Hazard Library
-# Copyright (C) 2012-2019 GEM Foundation
+# Copyright (C) 2012-2020 GEM Foundation
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -158,40 +158,24 @@ class PointSource(ParametricSeismicSource):
             radius.append(math.sqrt(rup_length ** 2 + rup_width ** 2) / 2.0)
         return max(radius)
 
-    def iter_ruptures(self):
+    def iter_ruptures(self, **kwargs):
         """
         Generate one rupture for each combination of magnitude, nodal plane
         and hypocenter depth.
         """
         for mag, mag_occ_rate in self.get_annual_occurrence_rates():
-            yield from self.gen_ruptures(mag, mag_occ_rate, collapse=False)
-
-    def gen_ruptures(self, mag, mag_occ_rate, collapse=False):
-        """
-        Generate one rupture for each combination of magnitude, nodal plane
-        and hypocenter depth.
-
-        :param mag: magnitude
-        :param mag_occ_rate: occurrence rate for the given magnitude
-        :param collapse: if True, collapse the ruptures to one
-        """
-        for np_prob, np in self.nodal_plane_distribution.data:
-            for hc_prob, hc_depth in self.hypocenter_distribution.data:
-                hypocenter = Point(latitude=self.location.latitude,
-                                   longitude=self.location.longitude,
-                                   depth=hc_depth)
-                occurrence_rate = (mag_occ_rate *
-                                   (1 if collapse else np_prob) *
-                                   (1 if collapse else hc_prob))
-                surface = self._get_rupture_surface(mag, np, hypocenter)
-                yield ParametricProbabilisticRupture(
-                    mag, np.rake, self.tectonic_region_type, hypocenter,
-                    surface, occurrence_rate,
-                    self.temporal_occurrence_model)
-                if collapse:
-                    break
-            if collapse:
-                break
+            for np_prob, np in self.nodal_plane_distribution.data:
+                for hc_prob, hc_depth in self.hypocenter_distribution.data:
+                    hc = Point(latitude=self.location.latitude,
+                               longitude=self.location.longitude,
+                               depth=hc_depth)
+                    occurrence_rate = mag_occ_rate * np_prob * hc_prob
+                    surface, nhc = self._get_rupture_surface(mag, np, hc)
+                    yield ParametricProbabilisticRupture(
+                        mag, np.rake, self.tectonic_region_type,
+                        nhc if kwargs.get('shift_hypo') else hc,
+                        surface, occurrence_rate,
+                        self.temporal_occurrence_model)
 
     def count_nphc(self):
         """
@@ -308,7 +292,7 @@ class PointSource(ParametricSeismicSource):
         surface = PlanarSurface(
             nodal_plane.strike, nodal_plane.dip, left_top, right_top,
             right_bottom, left_bottom)
-        return surface
+        return surface, rupture_center
 
     @property
     def polygon(self):
@@ -343,7 +327,7 @@ def make_rupture(trt, mag, msr=PointMSR(), aspect_ratio=1.0, seismo=(10, 30),
     ps.upper_seismogenic_depth = seismo[0]
     ps.lower_seismogenic_depth = seismo[1]
     ps.rupture_aspect_ratio = aspect_ratio
-    surface = ps._get_rupture_surface(mag, np, hc)
+    surface, nhc = ps._get_rupture_surface(mag, np, hc)
     rup = ParametricProbabilisticRupture(
         mag, np.rake, trt, hc, surface, occurrence_rate, tom)
     return rup

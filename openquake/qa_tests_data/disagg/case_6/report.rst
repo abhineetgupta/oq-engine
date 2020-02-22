@@ -2,9 +2,9 @@ GEM model for PAC, 0.10 in 50 years, Suva, testing IDL
 ======================================================
 
 ============== ===================
-checksum32     2,604,004,363      
-date           2019-10-02T10:07:12
-engine_version 3.8.0-git6f03622c6e
+checksum32     2_943_479_776      
+date           2020-01-16T05:30:43
+engine_version 3.8.0-git83c45f7244
 ============== ===================
 
 num_sites = 1, num_levels = 20, num_rlzs = 3
@@ -22,6 +22,7 @@ rupture_mesh_spacing            5.0
 complex_fault_mesh_spacing      10.0              
 width_of_mfd_bin                0.1               
 area_source_discretization      10.0              
+pointsource_distance            {'default': 50}   
 ground_motion_correlation_model None              
 minimum_intensity               {}                
 random_seed                     23                
@@ -67,7 +68,7 @@ Number of ruptures per source group
 ====== ========= ============ ============
 grp_id num_sites num_ruptures eff_ruptures
 ====== ========= ============ ============
-0      5.00000   349          349         
+0      0.09456   349          349         
 ====== ========= ============ ============
 
 Slowest sources
@@ -75,45 +76,46 @@ Slowest sources
 ========= ====== ==== ============ ========= ========= ============
 source_id grp_id code num_ruptures calc_time num_sites eff_ruptures
 ========= ====== ==== ============ ========= ========= ============
-32        0      S    80           0.02602   0.01250   80          
-36        0      S    67           0.02586   0.01493   67          
-19        0      S    86           0.02569   0.01163   86          
-39        0      S    61           0.02262   0.01639   61          
-28        0      S    55           0.02103   0.01818   55          
+32        0      S    80           0.14378   0.08750   80          
+19        0      S    86           0.13644   0.08140   86          
+36        0      S    67           0.11252   0.08955   67          
+39        0      S    61           0.10742   0.09836   61          
+28        0      S    55           0.10042   0.12727   55          
 ========= ====== ==== ============ ========= ========= ============
 
 Computation times by source typology
 ------------------------------------
-==== ========= ======
-code calc_time counts
-==== ========= ======
-S    0.12122   5     
-==== ========= ======
+==== =========
+code calc_time
+==== =========
+S    0.60059  
+==== =========
 
 Information about the tasks
 ---------------------------
 ================== ======= ======= ======= ======= =======
 operation-duration mean    stddev  min     max     outputs
-SourceReader       0.10014 NaN     0.10014 0.10014 1      
-preclassical       0.02462 0.00228 0.02141 0.02644 5      
+SourceReader       0.13604 NaN     0.13604 0.13604 1      
+preclassical       0.12115 0.01890 0.10162 0.14478 5      
 ================== ======= ======= ======= ======= =======
 
 Data transfer
 -------------
-============ ======================================= ========
-task         sent                                    received
-SourceReader                                         47.36 KB
-preclassical srcs=31 KB params=3.71 KB gsims=1.83 KB 1.67 KB 
-============ ======================================= ========
+============ =============================================== ========
+task         sent                                            received
+SourceReader                                                 31.93 KB
+preclassical params=31.58 KB srcs=31.08 KB srcfilter=6.02 KB 1.79 KB 
+============ =============================================== ========
 
 Slowest operations
 ------------------
-====================== ======== ========= ======
-calc_29431             time_sec memory_mb counts
-====================== ======== ========= ======
-total preclassical     0.12312  0.48438   5     
-composite source model 0.11153  0.0       1     
-total SourceReader     0.10014  0.0       1     
-store source_info      0.00293  0.98438   1     
-aggregate curves       0.00176  0.0       5     
-====================== ======== ========= ======
+=========================== ======== ========= ======
+calc_43223                  time_sec memory_mb counts
+=========================== ======== ========= ======
+total preclassical          0.60573  0.49219   5     
+composite source model      0.14806  0.08203   1     
+total SourceReader          0.13604  0.08203   1     
+store source_info           0.00236  0.0       1     
+splitting/filtering sources 0.00216  0.0       5     
+aggregate curves            0.00111  0.0       5     
+=========================== ======== ========= ======

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2016-2019 GEM Foundation
+# Copyright (C) 2016-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -25,9 +25,7 @@ from openquake.server import dbserver as dbs
 
 
 @sap.script
-def dbserver(cmd, dbhostport=None,
-             dbpath=os.path.expanduser(config.dbserver.file),
-             loglevel='INFO', foreground=False):
+def dbserver(cmd, dbhostport=None, loglevel='INFO', foreground=False):
     """
     start/stop/restart the database server, or return its status
     """
@@ -45,7 +43,7 @@ def dbserver(cmd, dbhostport=None,
             print('dbserver already stopped')
     elif cmd == 'start':
         if status == 'not-running':
-            dbs.run_server(dbpath, dbhostport, loglevel, foreground)
+            dbs.run_server(dbhostport, loglevel, foreground)
         else:
             print('dbserver already running')
 
@@ -53,6 +51,5 @@ def dbserver(cmd, dbhostport=None,
 dbserver.arg('cmd', 'dbserver command',
              choices='start stop status'.split())
 dbserver.arg('dbhostport', 'dbhost:port')
-dbserver.arg('dbpath', 'dbpath')
 dbserver.opt('loglevel', 'DEBUG|INFO|WARN')
 dbserver.flg('foreground', 'stay in foreground')

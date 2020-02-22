@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2018-2019 GEM Foundation
+# Copyright (C) 2018-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -47,7 +47,7 @@ def urlextract(url, fname):
     """
     Download and unzip an archive and extract the underlying fname
     """
-    if not fname.endswith('.zip'):
+    if not url.endswith('.zip'):
         return urlopen(url)
     with urlopen(url) as f:
         data = io.BytesIO(f.read())
@@ -207,8 +207,8 @@ def cross_correlation_matrix(imts, corr='yes'):
             if i == j:
                 cross_matrix[i, j] = 1
             else:
-                Tmax = max([T1, T2])
-                Tmin = min([T1, T2])
+                Tmax = max(T1, T2)
+                Tmin = min(T1, T2)
                 II = 1 if Tmin < 0.189 else 0
                 if corr == 'full':
                     cross_matrix[i, j] = 0.99999

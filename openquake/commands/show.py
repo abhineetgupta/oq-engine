@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2015-2019 GEM Foundation
+# Copyright (C) 2015-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -67,7 +67,11 @@ def show(what='contents', calc_id=-1, extra=()):
     if view.keyfunc(what) in view:
         print(view(what, ds))
     elif what.split('/', 1)[0] in extract:
-        print(extract(ds, what, *extra))
+        obj = extract(ds, what, *extra)
+        if hasattr(obj, 'dtype') and obj.dtype.names:
+            print(write_csv(io.BytesIO(), obj).decode('utf8'))
+        else:
+            print(obj)
     elif what in ds:
         obj = ds.getitem(what)
         if hasattr(obj, 'items'):  # is a group of datasets

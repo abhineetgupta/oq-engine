@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2010-2019 GEM Foundation
+# Copyright (C) 2010-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -33,7 +33,6 @@ from copy import deepcopy
 import openquake.hazardlib
 from openquake.hazardlib import geo
 from openquake.baselib.general import gettemp
-from openquake.hazardlib.gsim import registry
 from openquake.commonlib import logictree, readinput, tests
 from openquake.commonlib.source_reader import get_ltmodels
 from openquake.hazardlib.tom import PoissonTOM
@@ -1058,16 +1057,16 @@ class SourceModelLogicTreeBrokenInputTestCase(unittest.TestCase):
 
 class SourceModelLogicTreeTestCase(unittest.TestCase):
     def assert_branch_equal(self, branch, branch_id, weight_str, value,
-                            child_branchset_args=None):
+                            bset_args=None):
         self.assertEqual(type(branch), logictree.Branch)
         self.assertEqual(branch.branch_id, branch_id)
         self.assertEqual(branch.weight, float(weight_str))
         self.assertEqual(branch.value, value)
-        if child_branchset_args is None:
-            self.assertEqual(branch.child_branchset, None)
+        if bset_args is None:
+            self.assertEqual(branch.bset, None)
         else:
-            self.assert_branchset_equal(branch.child_branchset,
-                                        *child_branchset_args)
+            self.assert_branchset_equal(branch.bset,
+                                        *bset_args)
 
     def assert_branchset_equal(self, branchset, uncertainty_type, filters,
                                branches_args):
@@ -1248,7 +1247,7 @@ class SourceModelLogicTreeTestCase(unittest.TestCase):
              ]
             )
         sb1, sb2, sb3 = lt.root_branchset.branches
-        self.assertTrue(sb1.child_branchset is sb3.child_branchset)
+        self.assertTrue(sb1.bset is sb3.bset)
         self.assertEqual(
             str(lt),
             '<_TestableSourceModelLogicTree[sb1[b2], sb2[b3], sb3[b2]]>')
@@ -1335,11 +1334,11 @@ class BranchSetEnumerateTestCase(unittest.TestCase):
         bs0.branches = [b00, b01, b02]
         bs1 = logictree.BranchSet(None, None)
         bs1.branches = [b10]
-        b0.child_branchset = bs0
-        b1.child_branchset = bs1
+        b0.bset = bs0
+        b1.bset = bs1
         bs10 = logictree.BranchSet(None, None)
         bs10.branches = [b100, b101]
-        b10.child_branchset = bs10
+        b10.bset = bs10
 
         def ae(got, expected):
             self.assertAlmostEqual(got[0], expected[0])  # weight
@@ -2114,7 +2113,7 @@ class GsimLogicTreeTestCase(unittest.TestCase):
         </logicTree>
         """)
         self.parse_invalid(
-            xml, ValueError, "Unknown GSIM: SAdighEtAl1997 in file")
+            xml, ValueError, "Unknown GSIM: SAdighEtAl1997")
 
     def test_tectonic_region_type_used_twice(self):
         xml = _make_nrml("""\
@@ -2173,7 +2172,7 @@ class GsimLogicTreeTestCase(unittest.TestCase):
         self.assertEqual(as_model_lt.get_num_paths(), 40)
         self.assertEqual(fs_bg_model_lt.get_num_paths(), 20)
         self.assertEqual(len(list(as_model_lt)), 5 * 4 * 2 * 1)
-        effective_rlzs = set(rlz.uid for rlz in fs_bg_model_lt)
+        effective_rlzs = set(rlz.pid for rlz in fs_bg_model_lt)
         self.assertEqual(len(effective_rlzs), 5 * 4)
 
     def test_sampling(self):
@@ -2208,43 +2207,6 @@ class GsimLogicTreeTestCase(unittest.TestCase):
         # the percentages will be close to 40% and 60%
         self.assertEqual(counter, {('b1',): 413, ('b2',): 587})
 
-    def test_gsim_with_kwargs(self):
-        class FakeGMPETable(object):
-            REQUIRES_SITES_PARAMETERS = ()
-
-            def __init__(self, gmpe_table):
-                self.kwargs = {'gmpe_table': gmpe_table}
-
-            def init(self):
-                pass
-
-            def __str__(self):
-                return 'FakeGMPETable(%s)' % self.kwargs
-
-        registry['FakeGMPETable'] = FakeGMPETable
-        try:
-            xml = _make_nrml("""\
-            <logicTree logicTreeID="lt1">
-                <logicTreeBranchingLevel branchingLevelID="bl1">
-                    <logicTreeBranchSet uncertaintyType="gmpeModel"
-                                branchSetID="bs1"
-                                applyToTectonicRegionType="Shield">
-                        <logicTreeBranch branchID="b1">
-                            <uncertaintyModel gmpe_table="Wcrust_rjb_med.hdf5">
-                                FakeGMPETable
-                            </uncertaintyModel>
-                            <uncertaintyWeight>1.0</uncertaintyWeight>
-                        </logicTreeBranch>
-                    </logicTreeBranchSet>
-                </logicTreeBranchingLevel>
-            </logicTree>
-            """)
-            gsim_lt = self.parse_valid(xml, ['Shield'])
-            self.assertEqual(repr(gsim_lt), '''<GsimLogicTree
-Shield,b1,FakeGMPETable({'gmpe_table': 'Wcrust_rjb_med.hdf5'}),w=1.0>''')
-        finally:
-            del registry['FakeGMPETable']
-
 
 class LogicTreeProcessorTestCase(unittest.TestCase):
     def setUp(self):
@@ -2256,7 +2218,7 @@ class LogicTreeProcessorTestCase(unittest.TestCase):
         self.seed = oqparam.random_seed
 
     def test_sample_source_model(self):
-        [(sm_name, weight, branch_ids, _, _)] = self.source_model_lt
+        [(sm_name, weight, _, branch_ids)] = self.source_model_lt
         self.assertEqual(sm_name, 'example-source-model.xml')
         self.assertEqual(('b1', 'b4', 'b7'), branch_ids)
 
@@ -2271,7 +2233,7 @@ class LogicTreeProcessorTestCase(unittest.TestCase):
             self.source_model_lt.num_samples = orig_samples
 
     def test_sample_gmpe(self):
-        [(value, weight, branch_ids, _, _)] = logictree.sample(
+        [(value, weight, _, branch_ids)] = logictree.sample(
             list(self.gmpe_lt), 1, self.seed)
         self.assertEqual(value, ('[ChiouYoungs2008]', '[SadighEtAl1997]'))
         self.assertEqual(weight['default'], 0.5)

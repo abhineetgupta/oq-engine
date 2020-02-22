@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2018-2019 GEM Foundation
+# Copyright (C) 2018-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -28,6 +28,7 @@ from openquake.hazardlib.geo.geodetic import min_geodetic_distance
 from openquake.hazardlib.geo.surface.planar import PlanarSurface
 from openquake.hazardlib.geo.surface.multi import MultiSurface
 from openquake.hazardlib.geo.nodalplane import NodalPlane
+from openquake.hazardlib.geo.utils import KM_TO_DEGREES, angular_distance
 from openquake.hazardlib.source.point import PointSource
 from openquake.hazardlib.mfd import EvenlyDiscretizedMFD
 from openquake.hazardlib.pmf import PMF
@@ -172,6 +173,8 @@ class UCERFSource(BaseSeismicSource):
     code = b'U'
     MODIFICATIONS = set()
     tectonic_region_type = DEFAULT_TRT
+    checksum = 0
+    _wkt = ''
 
     def __init__(
             self, source_file, investigation_time, start_date, min_mag,
@@ -231,6 +234,9 @@ class UCERFSource(BaseSeismicSource):
         with h5py.File(self.source_file, "r") as hdf5:
             self.orig._rake = hdf5[self.idx_set["rake"]][()]
             return self.orig._rake
+
+    def wkt(self):
+        return ''
 
     def count_ruptures(self):
         """
@@ -292,6 +298,18 @@ class UCERFSource(BaseSeismicSource):
                 trace = "{:s}/{:s}".format(self.idx_set["sec"], str(idx))
                 plane = hdf5[trace + "/RupturePlanes"][:].astype("float64")
                 yield trace, plane
+
+    def get_bounding_box(self, maxdist):
+        """
+        :returns: min_lon, min_lat, max_lon, max_lat
+        """
+        with h5py.File(self.source_file, 'r') as hdf5:
+            locations = hdf5["Grid/Locations"][()]
+        lons, lats = locations[:, 0], locations[:, 1]
+        bbox = lons.min(), lats.min(), lons.max(), lats.max()
+        a1 = min(maxdist * KM_TO_DEGREES, 90)
+        a2 = angular_distance(maxdist, bbox[1], bbox[3])
+        return bbox[0] - a2, bbox[1] - a1, bbox[2] + a2, bbox[3] + a1
 
     def get_background_sids(self, src_filter):
         """
@@ -355,7 +373,7 @@ class UCERFSource(BaseSeismicSource):
 
         return rupture
 
-    def iter_ruptures(self):
+    def iter_ruptures(self, **kwargs):
         """
         Yield ruptures for the current set of indices
         """

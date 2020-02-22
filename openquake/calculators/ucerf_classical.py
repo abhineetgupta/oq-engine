@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2015-2019 GEM Foundation
+# Copyright (C) 2015-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -54,9 +54,9 @@ class UcerfClassicalCalculator(ClassicalCalculator):
         self.nsites = []  # used in agg_dicts
         self.maxdists = []
         param = dict(imtls=oq.imtls, truncation_level=oq.truncation_level,
-                     filter_distance=oq.filter_distance, max_weight=1E10,
-                     max_sites_disagg=oq.max_sites_disagg,
-                     task_multiplier=oq.task_multiplier)
+                     filter_distance=oq.filter_distance,
+                     max_weight=oq.max_weight,
+                     max_sites_disagg=oq.max_sites_disagg)
         self.calc_times = general.AccumDict(accum=np.zeros(3, np.float32))
         [gsims] = self.csm.info.get_gsims_by_trt().values()
         sample = .001 if os.environ.get('OQ_SAMPLE_SOURCES') else None

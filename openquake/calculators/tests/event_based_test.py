@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2014-2019 GEM Foundation
+# Copyright (C) 2014-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -38,7 +38,8 @@ from openquake.qa_tests_data.classical import case_18 as gmpe_tables
 from openquake.qa_tests_data.event_based import (
     blocksize, case_1, case_2, case_3, case_4, case_5, case_6, case_7,
     case_8, case_9, case_10, case_12, case_13, case_14, case_15, case_16,
-    case_17,  case_18, case_19, case_20, case_21, case_22, case_23, mutex)
+    case_17,  case_18, case_19, case_20, case_21, case_22, case_23, case_24,
+    case_25, mutex)
 from openquake.qa_tests_data.event_based.spatial_correlation import (
     case_1 as sc1, case_2 as sc2, case_3 as sc3)
 
@@ -327,6 +328,17 @@ class EventBasedTestCase(CalculatorTestCase):
         [fname] = export(('ruptures', 'xml'), self.calc.datastore)
         self.assertEqualFiles('expected/ruptures.xml', fname)
 
+        # testing extracting ruptures
+        rup0 = extract(self.calc.datastore, 'rupture/0').toml()
+        self.assertGot(  # planar rupture
+            rup0, os.path.join(self.testdir, 'expected/rupture_0.toml'))
+        rup1 = extract(self.calc.datastore, 'rupture/1').toml()
+        self.assertGot(  # gridded rupture
+            rup1, os.path.join(self.testdir, 'expected/rupture_1.toml'))
+
+        # test running scenario from event based
+        self.run_calc(case_15.__file__, 'scenario.ini')
+
     def test_case_16(self):
         # an example with site model raising warnings and autogridded exposure
         self.run_calc(case_16.__file__, 'job.ini',
@@ -337,7 +349,7 @@ class EventBasedTestCase(CalculatorTestCase):
         self.assertEqualFiles('expected/global_gmfs.txt', tmp)
 
     def test_case_17(self):  # oversampling and save_ruptures
-        # also, the grp-00 does not produce ruptures
+        # also, grp-00 does not produce ruptures
         expected = [
             'hazard_curve-mean.csv',
             'hazard_curve-rlz-001.csv',
@@ -421,6 +433,25 @@ class EventBasedTestCase(CalculatorTestCase):
         arr = self.calc.datastore.getitem('sitecol')
         tmp = gettemp(write_csv(io.BytesIO(), arr).decode('utf8'))
         self.assertEqualFiles('expected/sitecol.csv', tmp)
+
+    def test_case_24(self):
+        # This is a test for shift_hypo = true - The expected results are the
+        # same ones defined for the case_44 of the classical methodology
+        self.run_calc(case_24.__file__, 'job.ini')
+        [fname] = export(('hcurves', 'csv'), self.calc.datastore)
+        self.assertEqualFiles('expected/hazard_curve-mean-PGA.csv', fname)
+
+    def test_case_25(self):
+        # logic tree common + extra
+        self.run_calc(case_25.__file__, 'job.ini')
+        mean, f0, f1 = export(('hcurves', 'csv'), self.calc.datastore)
+        self.assertEqualFiles('expected/hazard_curve-PGA.csv', mean)
+        self.assertEqualFiles('expected/hazard_curve-rlz-000-PGA.csv', f0)
+        self.assertEqualFiles('expected/hazard_curve-rlz-001-PGA.csv', f1)
+
+        # check number of groups, must be 2
+        n = len(self.calc.datastore['csm_info/sg_data'])
+        self.assertEqual(n, 2)
 
     def test_overflow(self):
         too_many_imts = {'SA(%s)' % period: [0.1, 0.2, 0.3]

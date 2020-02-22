@@ -2,9 +2,9 @@ Classical Hazard QA Test, Case 17
 =================================
 
 ============== ===================
-checksum32     1,496,028,179      
-date           2019-10-02T10:07:33
-engine_version 3.8.0-git6f03622c6e
+checksum32     2_969_341_507      
+date           2020-01-16T05:31:37
+engine_version 3.8.0-git83c45f7244
 ============== ===================
 
 num_sites = 1, num_levels = 3, num_rlzs = 5
@@ -22,6 +22,7 @@ rupture_mesh_spacing            1.0
 complex_fault_mesh_spacing      1.0               
 width_of_mfd_bin                1.0               
 area_source_discretization      10.0              
+pointsource_distance            None              
 ground_motion_correlation_model None              
 minimum_intensity               {}                
 random_seed                     106               
@@ -69,8 +70,8 @@ Number of ruptures per source group
 ====== ========= ============ ============
 grp_id num_sites num_ruptures eff_ruptures
 ====== ========= ============ ============
-0      1.00000   39           39          
-1      1.00000   7            7.00000     
+0      0.02564   39           39          
+1      0.14286   7            7.00000     
 ====== ========= ============ ============
 
 Slowest sources
@@ -78,42 +79,43 @@ Slowest sources
 ========= ====== ==== ============ ========= ========= ============
 source_id grp_id code num_ruptures calc_time num_sites eff_ruptures
 ========= ====== ==== ============ ========= ========= ============
-1         0      P    39           0.00226   0.02564   39          
-2         1      P    7            2.058E-04 0.14286   7.00000     
+1         0      P    39           0.00250   0.02564   39          
+2         1      P    7            0.00247   0.14286   7.00000     
 ========= ====== ==== ============ ========= ========= ============
 
 Computation times by source typology
 ------------------------------------
-==== ========= ======
-code calc_time counts
-==== ========= ======
-P    0.00247   2     
-==== ========= ======
+==== =========
+code calc_time
+==== =========
+P    0.00497  
+==== =========
 
 Information about the tasks
 ---------------------------
 ================== ======= ========= ======= ======= =======
 operation-duration mean    stddev    min     max     outputs
-SourceReader       0.00170 6.199E-04 0.00127 0.00214 2      
-preclassical       0.00303 NaN       0.00303 0.00303 1      
+SourceReader       0.00187 7.650E-04 0.00132 0.00241 2      
+preclassical       0.00367 9.778E-06 0.00367 0.00368 2      
 ================== ======= ========= ======= ======= =======
 
 Data transfer
 -------------
 ============ =========================================== ========
 task         sent                                        received
-SourceReader apply_unc=2.28 KB ltmodel=378 B fname=212 B 6.14 KB 
-preclassical srcs=1.78 KB params=517 B srcfilter=223 B   392 B   
+SourceReader apply_unc=2.28 KB ltmodel=378 B fname=212 B 4.55 KB 
+preclassical srcs=2.59 KB params=1.29 KB srcfilter=446 B 732 B   
 ============ =========================================== ========
 
 Slowest operations
 ------------------
-====================== ========= ========= ======
-calc_29524             time_sec  memory_mb counts
-====================== ========= ========= ======
-composite source model 0.02319   0.0       1     
-total SourceReader     0.00341   0.0       2     
-total preclassical     0.00303   0.0       1     
-store source_info      0.00243   0.0       1     
-aggregate curves       2.420E-04 0.0       1     
-====================== ========= ========= ======
+=========================== ========= ========= ======
+calc_43321                  time_sec  memory_mb counts
+=========================== ========= ========= ======
+composite source model      0.01932   0.0       1     
+total preclassical          0.00735   0.0       2     
+total SourceReader          0.00373   0.0       2     
+store source_info           0.00257   0.0       1     
+splitting/filtering sources 6.826E-04 0.0       2     
+aggregate curves            3.808E-04 0.0       2     
+=========================== ========= ========= ======

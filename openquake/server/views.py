@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (C) 2015-2019 GEM Foundation
+# Copyright (C) 2015-2020 GEM Foundation
 #
 # OpenQuake is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
@@ -44,7 +44,8 @@ from django.shortcuts import render
 from openquake.baselib import datastore
 from openquake.baselib.general import groupby, gettemp, zipfiles
 from openquake.baselib.parallel import safely_call
-from openquake.hazardlib import nrml, gsim
+from openquake.hazardlib import nrml, gsim, valid
+
 
 from openquake.commonlib import readinput, oqvalidation, logs
 from openquake.calculators import base
@@ -213,6 +214,21 @@ def get_available_gsims(request):
     return HttpResponse(content=json.dumps(gsims), content_type=JSON)
 
 
+@cross_domain_ajax
+@require_http_methods(['GET'])
+def get_ini_defaults(request):
+    """
+    Return a list of ini attributes with a default value
+    """
+    ini_defs = {}
+    for name in dir(oqvalidation.OqParam):
+        obj = getattr(oqvalidation.OqParam, name)
+        if (isinstance(obj, valid.Param)
+                and obj.default is not valid.Param.NODEFAULT):
+            ini_defs[name] = obj.default
+    return HttpResponse(content=json.dumps(ini_defs), content_type=JSON)
+
+
 def _make_response(error_msg, error_line, valid):
     response_data = dict(error_msg=error_msg,
                          error_line=error_line,
@@ -298,7 +314,8 @@ def validate_zip(request):
         return HttpResponseBadRequest('Missing archive file')
     job_zip = archive.temporary_file_path()
     try:
-        base.calculators(readinput.get_oqparam(job_zip)).read_inputs()
+        oq = readinput.get_oqparam(job_zip)
+        base.calculators(oq, calc_id=None).read_inputs()
     except Exception as exc:
         return _make_response(str(exc), None, valid=False)
     else:
@@ -334,9 +351,10 @@ def calc_list(request, id=None):
     Responses are in JSON.
     """
     base_url = _get_base_url(request)
+    # always filter calculation list unless user is a superuser
     calc_data = logs.dbcmd('get_calcs', request.GET,
                            utils.get_valid_users(request),
-                           utils.get_acl_on(request), id)
+                           not utils.is_superuser(request), id)
 
     response_data = []
     username = psutil.Process(os.getpid()).username()
@@ -358,6 +376,8 @@ def calc_list(request, id=None):
 
     # if id is specified the related dictionary is returned instead the list
     if id is not None:
+        if not response_data:
+            return HttpResponseNotFound()
         [response_data] = response_data
 
     return HttpResponse(content=json.dumps(response_data),
@@ -380,9 +400,11 @@ def calc_abort(request, calc_id):
         message = {'error': 'Job %s is not running' % job.id}
         return HttpResponse(content=json.dumps(message), content_type=JSON)
 
-    if not utils.user_has_permission(request, job.user_name):
+    # only the owner or superusers can abort a calculation
+    if (job.user_name not in utils.get_valid_users(request) and
+            not utils.is_superuser(request)):
         message = {'error': ('User %s has no permission to abort job %s' %
-                             (job.user_name, job.id))}
+                             (request.user, job.id))}
         return HttpResponse(content=json.dumps(message), content_type=JSON,
                             status=403)
 
@@ -515,11 +537,16 @@ def calc_run(request):
                         status=status)
 
 
+# run calcs on the WebServer machine
 RUNCALC = '''\
 import os, sys, pickle
+from openquake.baselib import config
 from openquake.commonlib import logs
 from openquake.engine import engine
 if __name__ == '__main__':
+    if config.distribution.serialize_jobs:
+        # assume the zmq workerpools are not available
+        os.environ['OQ_DISTRIBUTE'] = 'processpool'
     oqparam = pickle.loads(%(pik)r)
     logs.init(%(job_id)s)
     with logs.handle(%(job_id)s):
@@ -708,7 +735,6 @@ def extract(request, calc_id, what):
             aw = _extract(ds, what + query_string)
             a = {}
             for key, val in vars(aw).items():
-                key = str(key)  # can be a numpy.bytes_
                 if key.startswith('_'):
                     continue
                 elif isinstance(val, str):
@@ -718,7 +744,7 @@ def extract(request, calc_id, what):
                     # this is hack: we are losing the values
                     a[key] = list(val)
                 else:
-                    a[key] = val
+                    a[key] = utils.array_of_strings_to_bytes(val, key)
             numpy.savez_compressed(fname, **a)
     except Exception as exc:
         tb = ''.join(traceback.format_tb(exc.__traceback__))
